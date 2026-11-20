@@ -1,0 +1,18 @@
+{
+ "_doc": "Vorlage für config/interviews.json",
+ "interviews": [
+  {
+   "id": "rs_muster_a",
+   "project": "rs",
+   "transcript": "Interviews/ProjektA/Muster/Transkript_Muster.docx",
+   "audio": [
+    "Interviews/ProjektA/Muster/Muster_1.WAV"
+   ],
+   "profile": "ohi_a",
+   "consent": {
+    "anonymise_requested": false,
+    "evidence": "Formular S. 12"
+   }
+  }
+ ]
+}

@@ -1,0 +1,20 @@
+{
+ "_doc": "Vorlage für config/sources.json: Zuordnung Transkript -> Audioteile je Projekt (Beispielnamen).",
+ "re_ton": "Interviews/ProjektB/Ton/",
+ "rechnitz": {
+  "muster": [
+   "Transkript_Muster.docx",
+   [
+    "Ton_Muster1.WAV",
+    "Ton_Muster2.WAV"
+   ]
+  ]
+ },
+ "za_dir": "Interviews/ProjektC/",
+ "zwangsarbeiter": {
+  "beispiel_anna": [
+   "Anna Beispiel",
+   "VD-0000_Anna_Beispiel.wav"
+  ]
+ }
+}

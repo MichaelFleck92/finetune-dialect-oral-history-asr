@@ -1,0 +1,21 @@
+{
+ "_doc": "Vorlage für config/profiles.json: ein Profil je Transkriptformat (Beispielwerte).",
+ "ohi_a": {
+  "_doc": "docx, Kürzel 'I:' / 'ZZ:' am Zeilenanfang, Absätze ohne Kürzel gehören zum vorigen Sprecher",
+  "tag_style": "colon",
+  "join": "paragraph",
+  "glyph_repair": false,
+  "bracket_default": "gap"
+ },
+ "pdf_bracket": {
+  "_doc": "PDF, Kürzel in eckigen Klammern [A.K.], Seitenkopf je Seite, Abspann mit Signatur",
+  "tag_style": "bracket",
+  "join": "paragraph",
+  "glyph_repair": true,
+  "bracket_default": "spoken_if_name",
+  "body_end": "^(Prof\\. Dr\\. Muster|Forschungsprojekt „Beispiel)",
+  "drop_lines": [
+   "^Seite \\d+ von \\d+$"
+  ]
+ }
+}

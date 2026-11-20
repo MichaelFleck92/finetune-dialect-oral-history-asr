@@ -1,0 +1,19 @@
+# Daten bleiben lokal (Audio, Transkripte, Namen der Interviewten)
+/Interviews
+/work/
+/dataset/
+/config/*.json
+!/config/*.example.json
+/pipeline/specs/*
+/training/runs/
+/training/longform/
+/training/entities/
+/training/blind/
+/samples/
+__pycache__/
+*.pyc
+.DS_Store
+# Laufzeitdateien der Warteschlange
+training/jobs/queue.txt
+training/jobs/done.txt
+training/jobs/*.log

@@ -1,0 +1,8 @@
+{
+ "_doc": "Vorlage: feste Aufteilung je Interview",
+ "interviews": {
+  "rs_muster_a": {
+   "split": "train"
+  }
+ }
+}

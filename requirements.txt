@@ -1,0 +1,14 @@
+# Pipeline and Whisper (tested: Python 3.12 on macOS with torch 2.3.1 / transformers 4.41.2;
+# training on Linux with torch 2.14 / transformers 4.57.6). ffmpeg must be on PATH.
+numpy>=1.26
+torch>=2.3
+torchaudio>=2.3
+transformers>=4.41,<5
+huggingface_hub
+rapidfuzz>=3
+num2words
+pdfminer.six           # PDF transcripts
+opencv-python          # OCR pre-processing (photographed pages, macOS Vision via pipeline/bin)
+Pillow
+spacy>=3.7             # names and dates (training/entities_tag.py), model de_core_news_lg
+datasets               # optional: pipeline/load_example.py
