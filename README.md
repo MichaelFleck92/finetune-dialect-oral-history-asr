@@ -190,6 +190,12 @@ Compared with the earlier, shorter segmentation (same models and the settings ch
 both epoch 3 –, whole interviews, paired), the longer segments change neither WER (Whisper + LoRA 18.1 → 18.0 %,
 Parakeet + LoRA 19.8 → 19.6 %, both within ±0.4) nor names and dates measurably.
 
+Names seen in training (`longform_train_overlap.py`, 21 Nov 2026): 477 of the 731 mentions occur in the training
+transcripts. Fine-tuning mainly helps with those (Whisper 65.4 → 83.0 %, Parakeet 58.1 → 79.5 %); mentions never seen
+in training rise only slightly (Whisper 48.0 → 52.4 %, Parakeet 42.5 → 48.4 %). Of the mentions only the fine-tuned
+model recognises, 93 of 115 (Whisper) and 108 of 137 (Parakeet) occur in training. The name gain is therefore mostly
+archive vocabulary learned in training, not generalisation to new names.
+
 Compute on one NVIDIA GPU (24 GB): recognition of the 8.5 h of whole test interviews takes 73 s with Parakeet and about 260 s with
 Whisper (greedy); training steps take 2.5 s (Parakeet, max. 14.1 GB) and 4.0 s (Whisper, max. 20.6 GB).
 
@@ -198,9 +204,13 @@ Whisper (greedy); training steps take 2.5 s (Parakeet, max. 14.1 GB) and 4.0 s (
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt                 # pipeline + Whisper
-# Parakeet needs its own environment (NeMo pins torch):
+python3 -m spacy download de_core_news_lg       # names and dates (tested 3.8.0)
+# Parakeet needs its own environment:
 python3 -m venv ~/venv-nemo && ~/venv-nemo/bin/pip install -r requirements-nemo.txt
 ```
+
+Versions are pinned to the tested environments. `requirements.txt` is the macOS environment (pipeline,
+evaluation); GPU training on Linux used torch 2.14 and transformers 4.57.6 instead.
 
 Data layout (all git-ignored):
 
@@ -231,4 +241,5 @@ written with the help of an AI coding assistant (Claude, Anthropic) and reviewed
 ## License
 
 The code is released under the MIT License (see [LICENSE](LICENSE)). It covers the code only: audio,
-transcripts and all data derived from them are not part of this repository and remain with the archive.
+transcripts and all data derived from them are not part of this repository and remain with the archive. This
+includes the trained adapters, which reproduce names learned from the interviews.

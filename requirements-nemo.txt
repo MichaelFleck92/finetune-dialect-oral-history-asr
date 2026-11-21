@@ -1,6 +1,7 @@
-# Parakeet (separate environment; NeMo pins its own torch). Tested on Linux, CUDA 13:
-# nemo_toolkit 3.0.0, torch 2.15, numba-cuda 0.30 (needed for the TDT loss on the GPU).
+# Parakeet (separate environment). nemo_toolkit, torch and numba-cuda pinned to the tested versions (Linux, CUDA 13);
+# numba-cuda is needed for the TDT loss on the GPU. rapidfuzz and num2words pinned as in requirements.txt.
 nemo_toolkit[asr]==3.0.0
-numba-cuda[cu13]
-rapidfuzz>=3
-num2words
+torch==2.15.*
+numba-cuda[cu13]==0.30.*
+rapidfuzz==3.14.3
+num2words==0.5.14
