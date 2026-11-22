@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Stufe 2: Originalaufnahmen -> work/audio16k/<id>.wav (16 kHz, mono, 16 bit).
+Stage 2: original recordings -> work/audio16k/<id>.wav (16 kHz, mono, 16 bit).
 
-Mehrteilige Aufnahmen werden in der Reihenfolge der Spec aneinandergehaengt;
-die Teilgrenzen landen in work/audio16k/<id>.json. Bei Stereo wird vorher
-geprueft, ob das Heruntermischen Sprache ausloescht (gegenphasige Kanaele) -
-dann wird der lautere Kanal genommen statt der Summe.
+Multi-part recordings are concatenated in the order of the spec; the part
+boundaries go to work/audio16k/<id>.json. For stereo, it is first checked
+whether downmixing cancels speech (channels in antiphase) - in that case the
+louder channel is taken instead of the sum.
 
   python3 pipeline/convert_audio.py [--only ID] [--force]
 """
@@ -22,7 +22,7 @@ OUT = WORK / "audio16k"
 
 
 def channel_plan(src):
-    """'mix' oder 'c0'/'c1': Probe von 3 min aus der Mitte, stereo dekodiert."""
+    """'mix' or 'c0'/'c1': 3-minute sample from the middle, decoded in stereo."""
     dur = audio_duration(src) or 0
     start = max(0.0, dur / 2 - 90)
     r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{start:.1f}", "-t", "180",
@@ -37,8 +37,8 @@ def channel_plan(src):
     corr = float(np.corrcoef(L, R)[0, 1]) if rl > 1 and rr > 1 else 1.0
     info = {"rms_db_L": round(20 * np.log10(rl), 1), "rms_db_R": round(20 * np.log10(rr), 1),
             "mix_loss_db": round(20 * np.log10(max(rl, rr) / rm), 1), "corr_LR": round(corr, 3)}
-    # Summe verliert gegenueber dem lauteren Kanal normal ~0-6 dB (ein Kanal
-    # leer = 6 dB). Deutlich mehr heisst: die Kanaele loeschen sich aus.
+    # Compared with the louder channel, the sum normally loses ~0-6 dB (one channel
+    # empty = 6 dB). Much more means: the channels cancel each other out.
     if info["mix_loss_db"] > 9:
         return ("c0" if rl >= rr else "c1"), info
     return "mix", info
@@ -54,9 +54,9 @@ def n_channels(src):
 
 
 def up_to_date(spec, parts, tgt, side):
-    """Ausgabe aktuell? Gleiche Audioteile in gleicher Reihenfolge wie in der
-    Spec, Quelldateien unveraendert (Groesse+mtime, sonst SHA-1 - stimmt der,
-    werden Groesse und mtime nachgetragen, damit der naechste Lauf schnell ist)."""
+    """Output up to date? Same audio parts in the same order as in the spec,
+    source files unchanged (size+mtime, else SHA-1 - if that matches, size
+    and mtime are updated so that the next run is fast)."""
     if not (tgt.exists() and side.exists()):
         return False
     old = json.loads(side.read_text(encoding="utf-8"))

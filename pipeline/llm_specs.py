@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
 """
-Stufe 0c: Specs von einem Sprachmodell schreiben lassen – Qwen3-235B über eine Qwen-API (16.11.2026).
+Stage 0c: have a language model write the specs – Qwen3-235B through a Qwen API (16.11.2026).
 
-Eine Spec legt fest, was der Parser nicht raten soll: wer welches Kürzel hat (Name, Rolle), welche
-Schreibvarianten eines Kürzels es gibt, wo das Gespräch beginnt und endet und welche Zeilen kein Gespräch
-sind (Seitenköpfe, Teilüberschriften). Diese Entscheidungen trifft Qwen3-235B aus der Strukturübersicht
-(inventory.py) plus Anfang und Ende des Transkripts mit Zeilennummern.
+A spec fixes what the parser should not guess: who has which tag (name, role), which spelling
+variants of a tag exist, where the conversation starts and ends and which lines are not conversation
+(page headers, section headings). Qwen3-235B makes these decisions from the structural overview
+(inventory.py) plus the beginning and end of the transcript with line numbers.
 
-Das Modell gibt nie Transkripttext aus, nur diese Entscheidungen (JSON, per Schema erzwungen, Temperatur 0).
-Jede Antwort wird sofort mit dem Parser geprüft (parse_transcripts.parse, inkl. Wortprüfung: jedes Wort der
-Ausgabe steht in derselben Reihenfolge im Quelltext). Meldet der Parser einen Fehler oder bleiben Wörter
-ohne bekannten Sprecher, bekommt das Modell die Meldung zurück und darf bis zu --retries Mal korrigieren.
+The model never outputs transcript text, only these decisions (JSON, enforced by a schema, temperature 0).
+Every answer is checked immediately with the parser (parse_transcripts.parse, including the word check: every
+word of the output occurs in the same order in the source text). If the parser reports an error or words
+remain without a known speaker, the model gets the message back and may correct itself up to --retries times.
 
-Nicht vom Modell, sondern aus der lokalen Projektkonfiguration (config/interviews.json): Dateien und
-Audioteile, Format-Profil (pipeline/specs/_profiles.json), Einwilligung, Ausschluss. Anmerkungen in Klammern
-klassifiziert weiter notes.py nach festen Regeln.
+Not from the model but from the local project configuration (config/interviews.json): files and
+audio parts, format profile (pipeline/specs/_profiles.json), consent, exclusion. Bracketed annotations
+are still classified by notes.py according to fixed rules.
 
-Anbindung: jede OpenAI-kompatible Chat-Completions-API, die Qwen3-235B-A22B-Instruct-2507 anbietet
-(gehostet oder selbst betrieben, z. B. mit vLLM), über Umgebungsvariablen:
-  QWEN_API_BASE   Basis-URL bis einschließlich /v1 (Pflicht)
-  QWEN_API_KEY    Schlüssel, falls der Endpunkt einen verlangt
-  QWEN_MODEL      Modellname beim Anbieter (Standard: qwen3-235b-a22b-instruct-2507)
+Connection: any OpenAI-compatible chat-completions API that offers Qwen3-235B-A22B-Instruct-2507
+(hosted or self-run, e.g. with vLLM), via environment variables:
+  QWEN_API_BASE   base URL up to and including /v1 (required)
+  QWEN_API_KEY    key, if the endpoint requires one
+  QWEN_MODEL      model name at the provider (default: qwen3-235b-a22b-instruct-2507)
 
-  python3 pipeline/llm_specs.py                      # alle Interviews ohne gültige Spec
+  python3 pipeline/llm_specs.py                      # all interviews without a valid spec
   python3 pipeline/llm_specs.py --only re_,rs_a --force
-  python3 pipeline/llm_specs.py --compare <ordner>/turns     # gegen Turns aus anderen Specs (nur Zahlen)
+  python3 pipeline/llm_specs.py --compare <folder>/turns     # against turns from other specs (figures only)
 
--> pipeline/specs/<id>.json, work/llm_specs/<id>.json (Antworten, Versuche, Parser-Meldungen),
-   work/llm_specs/_vergleich.json (mit --compare). Antworten werden zwischengespeichert (work/llm_cache/).
+-> pipeline/specs/<id>.json, work/llm_specs/<id>.json (answers, attempts, parser messages),
+   work/llm_specs/_vergleich.json (with --compare). Answers are cached (work/llm_cache/).
 """
 import argparse, collections, difflib, hashlib, json, os, re, sys, time
 import urllib.error, urllib.request
@@ -43,7 +43,7 @@ SPLIT_SRC = ROOT / "config" / "split.json"
 OUT = WORK / "llm_specs"
 CACHE = WORK / "llm_cache"
 MODEL = os.environ.get("QWEN_MODEL", "qwen3-235b-a22b-instruct-2507")
-HEAD, TAIL = 150, 40          # Zeilen vom Anfang/Ende des Transkripts, die das Modell wörtlich sieht
+HEAD, TAIL = 150, 40          # lines from the start/end of the transcript that the model sees verbatim
 
 ROLES = ["interviewer", "zeitzeuge", "weitere"]
 SCHEMA = {
@@ -103,10 +103,10 @@ TASK = """Felder:
 """
 
 
-# ---------------------------------------------------------------- Qwen-API, mit Zwischenspeicher
+# ---------------------------------------------------------------- Qwen API, with cache
 
 def chat(body, attempts=8):
-    """POST /chat/completions (OpenAI-kompatibel); wiederholt bei Überlast und Netzfehlern."""
+    """POST /chat/completions (OpenAI-compatible); retries on overload and network errors."""
     base = os.environ.get("QWEN_API_BASE")
     if not base:
         sys.exit("QWEN_API_BASE fehlt: Basis-URL einer OpenAI-kompatiblen Qwen-API (bis einschließlich /v1)")
@@ -130,14 +130,14 @@ def chat(body, attempts=8):
 
 
 def parse_json(raw):
-    """JSON-Antwort; verträgt einen Denkblock oder Codezaun davor/danach (Endpunkte ohne Schema-Zwang)."""
+    """JSON answer; tolerates a thinking block or code fence before/after it (endpoints without schema enforcement)."""
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S)
     i, j = raw.find("{"), raw.rfind("}")
     return json.loads(raw[i:j + 1] if i >= 0 and j > i else raw)
 
 
 def ask(messages, model, usage, fmt="schema", max_tokens=4000):
-    """Chat mit JSON-Schema; Antwort (dict) aus dem Zwischenspeicher, wenn genau diese Anfrage schon lief."""
+    """Chat with a JSON schema; answer (dict) from the cache if exactly this request has already run."""
     req = {"model": model, "system": SYSTEM, "messages": messages, "schema": SCHEMA,
            "temperature": 0, "max_tokens": max_tokens}
     if fmt != "schema":
@@ -153,7 +153,7 @@ def ask(messages, model, usage, fmt="schema", max_tokens=4000):
     if fmt == "schema":
         body["response_format"] = {"type": "json_schema",
                                    "json_schema": {"name": "spec", "strict": True, "schema": SCHEMA}}
-    else:                                            # ohne Schema-Zwang: Schema in den Prompt
+    else:                                            # without schema enforcement: schema goes into the prompt
         if fmt == "object":
             body["response_format"] = {"type": "json_object"}
         body["messages"][-1]["content"] += "\n\nAntworte nur mit JSON nach diesem Schema:\n" + json.dumps(SCHEMA, ensure_ascii=False)
@@ -172,7 +172,7 @@ def ask(messages, model, usage, fmt="schema", max_tokens=4000):
     return ans
 
 
-# ---------------------------------------------------------------- Prompt und Spec
+# ---------------------------------------------------------------- prompt and spec
 
 def numbered(lines, a, b):
     return "\n".join(f"{i:5}| {mask(lines[i].strip())[:300]}" for i in range(a, b) if lines[i].strip())
@@ -195,7 +195,7 @@ def prompt(meta):
 
 
 def source(meta, vocab):
-    """Zeilen des Transkripts roh (wie im Prompt) und so, wie der Parser sie sieht (Ligaturen repariert)."""
+    """Lines of the transcript raw (as in the prompt) and as the parser sees them (ligatures repaired)."""
     from parse_transcripts import PROFILES
     from sources import detect_glyphs, repair_glyphs
     p = resolve(meta["transcript"]) if not meta["transcript"].startswith("work/") else ROOT / meta["transcript"]
@@ -211,10 +211,10 @@ LINE_NO = re.compile(r"^\s*\d{1,5}\s*[:|]\s?")
 
 
 def anchor(raw, fixed, value, start=0):
-    """Zeilenanfang aus der Antwort -> (Präfix, wie ihn der Parser findet; Zeilenindex) oder (Wert, None).
-    Gesucht wird in den rohen und den reparierten Zeilen, notfalls ohne eine mitkopierte Zeilennummer
-    ("718: ..." aus der Übersicht). Zurück kommt der Anfang der reparierten Zeile, lang genug, dass ab
-    `start` keine frühere Zeile denselben Anfang hat."""
+    """Line start from the answer -> (prefix as the parser finds it; line index) or (value, None).
+    Searches the raw and the repaired lines, if necessary without a copied line number
+    ("718: ..." from the overview). Returns the start of the repaired line, long enough that from
+    `start` on no earlier line has the same start."""
     v = (value or "").strip()
     if not v:
         return None, None
@@ -230,7 +230,7 @@ def anchor(raw, fixed, value, start=0):
                     if first == i:
                         return pre, i
                 return line, i
-    for cand in dict.fromkeys([v, LINE_NO.sub("", v).strip()]):     # notfalls irgendwo in der Zeile (nach Kürzel)
+    for cand in dict.fromkeys([v, LINE_NO.sub("", v).strip()]):     # if necessary anywhere in the line (after the tag)
         if len(cand) >= 12:
             for i in range(start, len(raw)):
                 if cand in raw[i] or cand in fixed[i]:
@@ -244,14 +244,14 @@ def anchor(raw, fixed, value, start=0):
 
 
 def build_spec(meta, ans, raw=None, fixed=None):
-    """Antwort des Modells + Projektmetadaten -> Spec im Format des Parsers."""
+    """Model answer + project metadata -> spec in the parser's format."""
     speakers = {}
     for s in ans["speakers"]:
         t = s["tag"].strip().strip("[]").rstrip(":").strip()
         if t and t not in speakers:
             name = s["name"].strip() or t
-            # Personen-ID über Interviews hinweg nur bei vollem Namen (Vor- und Nachname); Bezeichnungen wie
-            # "Ehefrau" oder ein bloßes Kürzel bleiben je Interview getrennt (sonst falsche Personengruppen)
+            # person ID across interviews only with a full name (first and last name); labels such as
+            # "Ehefrau" or a bare tag stay separate per interview (otherwise wrong groups of persons)
             full = len(name.split()) >= 2 and re.match(r"^[A-ZÄÖÜ]", name) and name != t
             speakers[t] = {"name": name, "role": s["role"],
                            "person": "p_" + slug(name) if full else f"p_{meta['id']}_{slug(t) or 'x'}"}
@@ -273,14 +273,14 @@ def build_spec(meta, ans, raw=None, fixed=None):
             spec[k] = meta[k]
     if ans["paragraph_order"] and meta.get("tag_style") == "none":
         spec["paragraph_speakers"] = {"order": [t for t in ans["paragraph_order"] if t in speakers]}
-    if raw is not None:                                 # Zeilenanfänge so, wie der Parser sie findet
+    if raw is not None:                                 # line starts as the parser finds them
         i0 = 0
         if spec["body_start"]:
             spec["body_start"], i0 = anchor(raw, fixed, spec["body_start"])
             i0 = i0 or 0
         if spec["body_end"]:
             spec["body_end"], _ = anchor(raw, fixed, spec["body_end"], i0 + 1)
-        for k in ("drop_lines", "gap_lines"):           # nie eine Gesprächszeile (> 15 Wörter) verwerfen
+        for k in ("drop_lines", "gap_lines"):           # never discard a conversation line (> 15 words)
             keep = []
             for x in spec[k]:
                 pre, i = anchor(raw, fixed, x)
@@ -293,7 +293,7 @@ def build_spec(meta, ans, raw=None, fixed=None):
     spec["llm"]["verworfene_zeilenregeln"] = len(spec.pop("_verworfen", []))
     spec["drop_lines"] = ["^" + re.escape(x) for x in spec["drop_lines"]]
     spec["gap_lines"] = ["^" + re.escape(x) for x in spec["gap_lines"]]
-    for rx in list(spec["tag_regex"]):                  # ungültige Regex gar nicht erst an den Parser
+    for rx in list(spec["tag_regex"]):                  # do not even pass an invalid regex to the parser
         try:
             re.compile(rx)
         except re.error:
@@ -302,7 +302,7 @@ def build_spec(meta, ans, raw=None, fixed=None):
 
 
 def problems(rec, spec=None, fixed=None):
-    """Was nach einem erfolgreichen Parse noch nicht stimmt (Rückmeldung an das Modell)."""
+    """What is still wrong after a successful parse (feedback to the model)."""
     out = []
     st = rec["stats"]
     if spec is not None and fixed is not None:
@@ -357,7 +357,7 @@ def problems(rec, spec=None, fixed=None):
     return out
 
 
-# ---------------------------------------------------------------- Vergleich mit früheren Turns
+# ---------------------------------------------------------------- comparison with earlier turns
 
 WORD = re.compile(r"[\wÄÖÜäöüß]+")
 
@@ -371,7 +371,7 @@ def word_rows(turns):
 
 
 def compare(old, new):
-    """Wörter gemeinsam, Rolle/Sprecher je Wort gleich (Sprecher über Mehrheit zugeordnet), Wechsel."""
+    """Words in common, same role/speaker per word (speakers matched by majority), changes."""
     P, L = word_rows(old["turns"]), word_rows(new["turns"])
     sm = difflib.SequenceMatcher(None, [r[0] for r in P], [r[0] for r in L], autojunk=False)
     pairs = [(b.a + k, b.b + k) for b in sm.get_matching_blocks() for k in range(b.size)]
@@ -392,7 +392,7 @@ def compare(old, new):
             "wechsel": {"beide": tp, "nur_neu": fp, "nur_alt": fn}}
 
 
-# ---------------------------------------------------------------- Ablauf
+# ---------------------------------------------------------------- procedure
 
 def run_one(meta, vocab, a, usage):
     from parse_transcripts import parse
@@ -408,7 +408,7 @@ def run_one(meta, vocab, a, usage):
         try:
             rec = parse(spec, vocab)
             probs = problems(rec, spec, fixed)
-        except Exception as e:                       # Parser-Fehler inkl. Wortprüfung
+        except Exception as e:                       # parser errors including the word check
             err, rec = str(e)[:400], None
         log["versuche"].append({"antwort": ans, "fehler": err, "probleme": probs})
         if err is None and not probs:

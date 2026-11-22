@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 """
-Transkripte einlesen (docx / pdf / rtf / OCR-txt) und kaputte Ligaturen
-in 13 PDFs reparieren.
+Read transcripts (docx / pdf / rtf / OCR txt) and repair broken ligatures
+in 13 PDFs.
 
-Die Leser liefern Zeilen bzw. Absaetze, sonst nichts. Was davon Kopf,
-Sprecherkuerzel, Anmerkung oder Gespraechstext ist, entscheidet der Parser
-anhand der Spec des Interviews.
+The readers return lines or paragraphs, nothing else. Which of them are
+header, speaker tag, annotation or conversation text is decided by the parser
+on the basis of the interview's spec.
 """
 import collections, itertools, re, subprocess, unicodedata, zipfile
 from pathlib import Path
 
-# ------------------------------------------------------------------ Leser
+# ------------------------------------------------------------------ readers
 
 def docx_paragraphs(path):
-    """Absatztexte aus einer docx.
+    """Paragraph texts from a docx.
 
-    Zwei Fallen (beide in v1 aufgetreten):
-    * <w:t...> darf nicht auf <w:tab>, <w:tabs>, <w:tblPr> passen - sonst
-      frisst der Ausdruck die dazwischenliegenden Tags als "Text".
-    * Textfelder enthalten <w:p> in <w:p>; der nicht-greedy Ausdruck endet dann
-      am inneren </w:p>. Textfelder/Bilder werden vorher entfernt.
+    Two traps (both occurred in v1):
+    * <w:t...> must not match <w:tab>, <w:tabs>, <w:tblPr> - otherwise the
+      expression swallows the tags in between as "text".
+    * Text boxes contain <w:p> inside <w:p>; the non-greedy expression then
+      ends at the inner </w:p>. Text boxes/images are removed beforehand.
     """
     with zipfile.ZipFile(path) as z:
         xml = z.read("word/document.xml").decode("utf-8")
     xml = re.sub(r"<mc:AlternateContent\b.*?</mc:AlternateContent>", " ", xml, flags=re.S)
     xml = re.sub(r"<w:txbxContent\b.*?</w:txbxContent>", " ", xml, flags=re.S)
     xml = re.sub(r"<w:pict\b.*?</w:pict>", " ", xml, flags=re.S)
-    # Fussnoten-/Endnotenverweise sind kein Text
+    # footnote/endnote references are not text
     xml = re.sub(r"<w:(footnote|endnote)Reference\b[^>]*/>", " ", xml)
     out = []
     for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S):
@@ -52,8 +52,8 @@ def pdf_lines(path):
 
 
 def rtf_lines(path):
-    """RTF ueber macOS textutil; die Datei enthaelt eingebettete Objekte, an
-    denen eigene RTF-Entkleidung scheitert."""
+    """RTF via macOS textutil; the file contains embedded objects on which
+    home-made RTF stripping fails."""
     r = subprocess.run(["textutil", "-convert", "txt", "-stdout", str(path)],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -75,19 +75,19 @@ def read_lines(path):
         return pdf_lines(path)
     raise ValueError(f"unbekanntes Format: {path}")
 
-# ------------------------------------------------------------------ Ligaturen
+# ------------------------------------------------------------------ ligatures
 
-# Die PDFs eines Transkriptionsteams ("Interview Hr./Fr. X.pdf", 13 Stueck) benutzen
-# Schriften mit kaputter Unicode-Zuordnung: Ligaturen (tt, ti, ft, ff, fi, ...)
-# kommen als beliebige Ersatzzeichen heraus - und zwar je Dokument andere:
-#   (je Dokument eine eigene Zuordnung, z. B. @=tt L=ft O=ti oder W=ff)
-# v1 kannte nur @0LOSQ in drei Dokumenten; alle anderen Faelle ("MuAer",
-# "s7mmt", "Karto^eln") gingen unrepariert ins Training.
+# The PDFs of one transcription team ("Interview Hr./Fr. X.pdf", 13 of them) use
+# fonts with a broken Unicode mapping: ligatures (tt, ti, ft, ff, fi, ...)
+# come out as arbitrary replacement characters - and different ones per document:
+#   (a separate mapping per document, e.g. @=tt L=ft O=ti or W=ff)
+# v1 only knew @0LOSQ in three documents; all other cases ("MuAer",
+# "s7mmt", "Karto^eln") went into training unrepaired.
 #
-# Vorgehen je Dokument: jedes Zeichen, das mitten im Wort nach einem
-# Buchstaben steht und dort nicht hingehoert, wird mit allen Ligaturen
-# probiert. Ergibt eine Ligatur fuer dieses Zeichen ueberwiegend bekannte
-# Woerter, gilt das Zeichen als Ersatzzeichen dieses Dokuments.
+# Procedure per document: every character that stands inside a word after a
+# letter and does not belong there is tried with all ligatures.
+# If one ligature for this character yields mostly known
+# words, the character counts as a replacement character of this document.
 LIGS = ["tt", "ti", "ft", "ff", "fi", "fl", "ffi", "ffl", "tf", "st", "fb", "fh", "fk", "di", "ch", "tz"]
 NOTE_SPAN = re.compile(r"(?:(?<=\s)|^)\[[^\[\]]{1,200}\]")
 TOKEN = re.compile(r"\S+")
@@ -103,7 +103,7 @@ def build_vocab(texts):
 
 
 def _candidate_positions(w, chars=None):
-    """Positionen verdaechtiger Zeichen im Wort w (ohne Randsatzzeichen)."""
+    """Positions of suspicious characters in word w (without edge punctuation)."""
     out = []
     for i in range(1, len(w)):
         c = w[i]
@@ -115,19 +115,19 @@ def _candidate_positions(w, chars=None):
             continue
         prev = w[i - 1]
         nxt = w[i + 1] if i + 1 < len(w) else ""
-        # zwei Ersatzzeichen hintereinander ("S7K" = Stift) zaehlen fuereinander
-        # als Buchstaben
+        # two replacement characters in a row ("S7K" = Stift) count as letters
+        # for each other
         g_prev = chars is not None and prev in chars
         g_next = chars is not None and nxt in chars
-        if c.isalpha():                       # Grossbuchstabe mitten im Wort
-            # Beim Reparieren (chars bekannt) auch direkt nach dem grossen
-            # Anfangsbuchstaben: "SOLing" = Stifting, "OXizier" = Offizier
-            # (Review 01.10.2026: 17 Token in 5 PDFs). Beim Erkennen nicht -
-            # dort waeren das meist Abkuerzungen.
+        if c.isalpha():                       # capital letter inside a word
+            # When repairing (chars known), also right after the capital
+            # initial letter: "SOLing" = Stifting, "OXizier" = Offizier
+            # (review 01.10.2026: 17 tokens in 5 PDFs). Not when detecting -
+            # there these would mostly be abbreviations.
             after_cap = chars is not None and i == 1 and prev.isupper() and bool(nxt)
             if not (prev.islower() or g_prev or after_cap) or (nxt and not (nxt.islower() or g_next)):
                 continue
-        else:                                 # Ziffer / Sonderzeichen
+        else:                                 # digit / special character
             if not (prev.isalpha() or g_prev):
                 continue
             if nxt and not (nxt.isalpha() or g_next):
@@ -137,8 +137,8 @@ def _candidate_positions(w, chars=None):
 
 
 def _protect_notes(line):
-    """Echte Anmerkungen [..] (oeffnende Klammer am Wortanfang) durch
-    Platzhalter ersetzen, damit ihre Klammern nicht als Ersatzzeichen gelten."""
+    """Replace real annotations [..] (opening bracket at the start of a word) with
+    placeholders so that their brackets do not count as replacement characters."""
     keep = []
     def sub(m):
         keep.append(m.group(0)); return f"\x00{len(keep)-1}\x00"
@@ -150,10 +150,10 @@ def _restore_notes(line, keep):
 
 
 def detect_glyphs(lines, vocab, min_hits=3, min_share=0.4):
-    """-> {Ersatzzeichen: haeufigste Ligatur} fuer dieses Dokument.
+    """-> {replacement character: most frequent ligature} for this document.
 
-    Als Beleg zaehlt ein bekanntes Wort oder ein Kompositum mit bekanntem
-    Grundwort (viele betroffene Woerter sind selten oder zusammengesetzt)."""
+    Evidence is a known word or a compound with a known head word (many
+    affected words are rare or compounds)."""
     known = [w for w, n in vocab.items() if len(w) >= 6 and n >= 2]
     tails = {}
     for k in known:
@@ -186,9 +186,9 @@ def detect_glyphs(lines, vocab, min_hits=3, min_share=0.4):
 
 
 def repair_glyphs(lines, vocab, glyphs):
-    """Ersatzzeichen je Wort aufloesen (Vorrang siehe fix()).
+    """Resolve replacement characters word by word (precedence see fix()).
 
-    -> (Zeilen, {kaputt: repariert}, {ungepruefte Reparaturen})
+    -> (lines, {broken: repaired}, {unchecked repairs})
     """
     if not glyphs:
         return list(lines), {}, set()
@@ -196,15 +196,15 @@ def repair_glyphs(lines, vocab, glyphs):
     cache, fixes, unsure = {}, {}, set()
 
     def fix(w):
-        """Vorrang: (1) Dokument-Regel, wenn sie ein bekanntes Wort ergibt;
-        (2) eine andere Ligatur-Kombination, die ein bekanntes Wort ergibt;
-        (3) sonst die Dokument-Regel (ungeprueft, wird gemeldet).
-        Komposita-Treffer entscheiden hier nicht mit - sie liessen "Scho]en"
-        zu "Schoffen" statt "Schotten" werden."""
+        """Precedence: (1) document rule, if it yields a known word;
+        (2) another ligature combination that yields a known word;
+        (3) otherwise the document rule (unchecked, reported).
+        Compound matches do not count here - they turned "Scho]en" into
+        "Schoffen" instead of "Schotten"."""
         if w in cache:
             return cache[w]
         if w[0].isdigit() or not any(ch.isalpha() and ch not in chars for ch in w):
-            cache[w] = w; return w            # Zahl: "100", "70er", "40er-Jahre"
+            cache[w] = w; return w            # number: "100", "70er", "40er-Jahre"
         pos = _candidate_positions(w, chars)
         if not pos or len(pos) > 4:
             cache[w] = w; return w
@@ -234,8 +234,8 @@ def repair_glyphs(lines, vocab, glyphs):
             fixes[w] = best
         return best
 
-    # auf dem ganzen Dokument, damit ueber Zeilen umbrochene Anmerkungen
-    # ("[Anm: Stalin-Denkmal,\nRussen-Denkmal]") als Ganzes geschuetzt sind
+    # on the whole document, so that annotations wrapped across lines
+    # ("[Anm: Stalin-Denkmal,\nRussen-Denkmal]") are protected as a whole
     prot, keep = _protect_notes("\n".join(lines))
     toks = []
     for m in re.finditer(r"\S+|\s+", prot):

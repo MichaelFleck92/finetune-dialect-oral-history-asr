@@ -1,65 +1,65 @@
 #!/usr/bin/env python3
 """
-Unabhaengige Genauigkeitsmessung: Alignment gegen die handgesetzten Zeitmarken.
+Independent accuracy measurement: alignment against the hand-set time marks.
 
-Das Alignment benutzt die Marken nicht mehr - damit sind sie ein Massstab, der
-nicht aus denselben Annahmen stammt wie das Ergebnis (in v1 gab es das nur fuer
-ein Interview). Eine Marke steht am Ende eines Absatzes; verglichen wird mit
-dem Ende des letzten Wortes davor.
+The alignment no longer uses the marks - so they are a yardstick that does
+not come from the same assumptions as the result (in v1 this existed only for
+one interview). A mark stands at the end of a paragraph; it is compared with
+the end of the last word before it.
 
-Die Marken selbst sind ungenau: sie hinken dem Gesprochenen nach (Tastendruck
-nach dem Hoeren). Bis 29.09.2026 wurde dieser Verzug je Interview als Median
-von (Wortende - Marke) geschaetzt - aus denselben Marken, die dann gemessen
-wurden; ein gleichbleibender Versatz des Alignments verschwand so im Verzug
-(Gutachten, Punkt 2). Seither misst Whisper-large-v3 den Verzug unabhaengig
-vom Alignment (delays(): je Interview N_DELAY Marken, wo enden die Woerter vor
-der Marke?), und nur um diesen Verzug wird korrigiert; der Versatz des
-Alignments gegen Whisper bleibt im Fehler stehen und wird ausgewiesen. Zum
-Vergleich: leave-one-out, der alte Verzug und die Rohwerte ohne Korrektur.
+The marks themselves are imprecise: they lag behind the speech (key press
+after hearing). Until 29.09.2026 this delay was estimated per interview as the
+median of (word end - mark) - from the same marks that were then measured; a
+constant offset of the alignment thus disappeared into the delay (review,
+point 2). Since then Whisper-large-v3 measures the delay independently of the
+alignment (delays(): N_DELAY marks per interview, where do the words before
+the mark end?), and only this delay is corrected for; the offset of the
+alignment against Whisper stays in the error and is reported. For
+comparison: leave-one-out, the old delay and the raw values without correction.
 
-Grobe Abweichungen (> 10 s) werden einzeln entschieden: Wo wird die Stelle vor
-der Marke gesprochen - dort, wo das Alignment sie hinlegt, oder dort, wo die
-Marke (plus Verzug) steht? Gesichtet wird dafuer nach Abzug des Verzugs aus
-denselben Marken (fuer eine Schwelle von 10 s genuegt das; mit dem unabhaengig
-gemessenen Verzug laege ein Fall mehr knapp darueber - er bleibt unentschieden
-und zaehlt in den Kennzahlen als Fehler). Bis 29.09.2026 entschied das die Greedy-Dekodierung
-desselben wav2vec2-Modells, aus dem die Stuetzpunkte des Alignments stammen -
-sie musste dem Alignment fast zwangslaeufig recht geben (Gutachten). Seither
-entscheidet ein Erkenner, der mit dem Alignment nichts gemein hat
-(Whisper-large-v3: andere Bauart, andere Trainingsdaten), und das Ohr:
+Gross deviations (> 10 s) are decided case by case: where is the passage
+before the mark spoken - where the alignment puts it, or where the mark (plus
+delay) stands? For screening, the delay estimated from the same marks is
+subtracted (sufficient for a threshold of 10 s; with the independently
+measured delay one more case would lie just above it - it stays undecided
+and counts as an error in the figures). Until 29.09.2026 this was decided by the greedy decoding
+of the same wav2vec2 model that provides the alignment's anchors -
+it almost inevitably had to agree with the alignment (review). Since then a
+recogniser that has nothing in common with the alignment decides
+(Whisper-large-v3: different architecture, different training data), plus the ear:
 
-  * Je Fall ein Fenster vor jeder der beiden Kandidatenstellen (WIN_BEFORE /
-    WIN_AFTER). Whisper transkribiert ohne Vorgabe - der Soll-Text geht nicht
-    als Prompt hinein. Die N_REF Woerter vor der Marke werden unscharf im
-    Gehoerten gesucht; die Wortzeiten sagen, wo die Stelle endet.
-  * Urteil: Treffer unter der Zufallsschwelle -> unklar. Endet die Stelle
-    hoechstens TOL_S neben genau einer Kandidatenstelle, stimmt diese
-    ("marke_falsch" = Alignment richtig, "alignment_falsch" = Marke richtig);
-    liegt sie weiter von beiden weg -> "beide_falsch". Den Ort liefern nur
-    Fenster mit verlaesslichen Wortzeiten (Whispers Wortzeiten kollabieren
-    gelegentlich auf einen Zeitpunkt); sagen zwei Fenster Verschiedenes -> unklar.
-    Beides seit der Hoerprobe vom 30.09.2026, die genau so einen Fall fand.
-  * Zufallsschwelle: 99. Perzentil der Trefferwerte, die ein Soll-Text in den
-    Fenstern anderer Interviews erreicht (dort kommt er nicht vor).
-  * Positivkontrolle: je Interview eine unstrittige Marke (Abweichung <= 2 s)
-    - findet Whisper die Stelle dort, wo sie sein muss?
-  * Hoerprobe (blind, A/B in zufaelliger Reihenfolge): alle Faelle, die
-    Whisper nicht entscheidet, in denen es dem Alignment widerspricht oder in
-    denen die Stelle in beiden Fenstern steht (dann entscheiden allein die
-    Wortzeiten), dazu eine Zufallsstichprobe der uebrigen als Probe auf
-    Whisper. Wo das Ohr sich festlegt, gilt sein Urteil.
+  * Per case, one window before each of the two candidate positions (WIN_BEFORE /
+    WIN_AFTER). Whisper transcribes without guidance - the target text is not
+    passed in as a prompt. The N_REF words before the mark are searched fuzzily
+    in what was heard; the word times tell where the passage ends.
+  * Verdict: match below the chance threshold -> unclear. If the passage ends
+    at most TOL_S from exactly one candidate position, that one is right
+    ("marke_falsch" = alignment right, "alignment_falsch" = mark right);
+    if it lies further from both -> "beide_falsch". Only windows with reliable
+    word times give the position (Whisper's word times occasionally collapse
+    onto one point in time); if two windows disagree -> unclear.
+    Both since the listening check of 30.09.2026, which found exactly such a case.
+  * Chance threshold: 99th percentile of the match scores a target text
+    reaches in the windows of other interviews (where it does not occur).
+  * Positive control: one undisputed mark per interview (deviation <= 2 s)
+    - does Whisper find the passage where it must be?
+  * Listening check (blind, A/B in random order): all cases that Whisper
+    does not decide, in which it contradicts the alignment or in which the
+    passage stands in both windows (then the word times alone decide), plus a
+    random sample of the rest as a check on Whisper. Where the ear commits,
+    its verdict applies.
 
-Die Whisper-Ergebnisse je Fenster werden zwischengespeichert
-(work/eval/marker_whisper.json); neu gerechnet wird nur, was fehlt.
+The Whisper results per window are cached (work/eval/marker_whisper.json);
+only what is missing is recomputed.
 
   PYTORCH_ENABLE_MPS_FALLBACK=1 python3 pipeline/eval_markers.py --csv work/eval/marker_eval.csv
-  python3 pipeline/eval_markers.py --hoerprobe       # naechste Runde: samples/marker/, dann samples/marker_2/ ...
+  python3 pipeline/eval_markers.py --hoerprobe       # next round: samples/marker/, then samples/marker_2/ ...
   python3 pipeline/eval_markers.py --hoerprobe-csv samples/marker/marker_hoerprobe.csv --csv work/eval/marker_eval.csv
 
-Mit --csv entstehen daneben marker_grob.csv (jede grobe Abweichung mit
-Zeitpunkten, Whisper- und Ohr-Urteil), marker_kontrolle.csv (Positivkontrolle)
-und marker_schiedsrichter.json (Schwelle, Kontrolle, Uebereinstimmung) - fuer
-report.py.
+With --csv, marker_grob.csv (every gross deviation with times, Whisper and
+ear verdict), marker_kontrolle.csv (positive control) and
+marker_schiedsrichter.json (threshold, control, agreement) are written next to
+it - for report.py.
 """
 import argparse, bisect, csv, html, json, math, random, re, shutil, subprocess, sys
 from pathlib import Path
@@ -70,16 +70,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ROOT, WORK, SR, load_specs, write_json
 
 WHISPER = "openai/whisper-large-v3"
-GROSS_S = 10.0          # ab dieser Abweichung (nach Abzug des Verzugs) wird einzeln entschieden
-N_REF = 12              # so viele Woerter vor der Marke werden gesucht
-WIN_BEFORE, WIN_AFTER = 24.0, 4.0   # Whisper-Fenster um eine Kandidatenstelle (28 s < 30 s)
-TOL_S = 5.0             # Stelle endet so nah an der Kandidatenstelle -> dort gesprochen
-NULL_Q = 99             # Zufallsschwelle: Perzentil der Treffer in fremden Interviews
-CONTROL_DEV_S = 2.0     # unstrittige Marke fuer die Positivkontrolle
+GROSS_S = 10.0          # from this deviation on (after subtracting the delay), cases are decided individually
+N_REF = 12              # this many words before the mark are searched for
+WIN_BEFORE, WIN_AFTER = 24.0, 4.0   # Whisper window around a candidate position (28 s < 30 s)
+TOL_S = 5.0             # passage ends this close to the candidate position -> spoken there
+NULL_Q = 99             # chance threshold: percentile of matches in other interviews
+CONTROL_DEV_S = 2.0     # undisputed mark for the positive control
 CONTROL_SEED, EAR_SEED = 30, 31
-N_DELAY, DELAY_SEED = 10, 32   # Verzug der Marken unabhaengig messen: so viele Marken je Interview
-MIN_DELAY = 3                   # weniger gueltige Messungen -> kein unabhaengiger Verzug, keine Korrektur
-CLIP_BEFORE, CLIP_AFTER = 12.0, 2.0  # Hoerprobe: Ausschnitt um jede Kandidatenstelle
+N_DELAY, DELAY_SEED = 10, 32   # measure the delay of the marks independently: this many marks per interview
+MIN_DELAY = 3                   # fewer valid measurements -> no independent delay, no correction
+CLIP_BEFORE, CLIP_AFTER = 12.0, 2.0  # listening check: excerpt around each candidate position
 EVAL = WORK / "eval"
 CACHE = EVAL / "marker_whisper.json"
 EAR_TSV = EVAL / "marker_hoerprobe.tsv"
@@ -91,9 +91,9 @@ VERDICTS = ("marke_falsch", "alignment_falsch", "beide_falsch", "unklar")
 def evaluate(path):
     d = json.loads(Path(path).read_text())
     W = d["words"]
-    # Mehrteilige Aufnahmen: die Zeitmarken beginnen je Teil wieder bei null
-    # (Gruppeninterview "Teil 2", ein zweiteiliges Interview). Springt die Uhr zurueck,
-    # gilt ab dort der naechste Teil mit seinem Versatz im zusammengefuegten Audio.
+    # Multi-part recordings: the time marks restart at zero in each part
+    # (group interview "Teil 2", one two-part interview). If the clock jumps back,
+    # the next part applies from there, with its offset in the concatenated audio.
     parts = json.loads((WORK / "audio16k" / f"{d['id']}.json").read_text())["parts"]
     offs = [p["offset_s"] for p in parts]
     part, prev_t = 0, -1.0
@@ -115,9 +115,9 @@ def summarize(rows):
         return None
     t = np.array([r["t"] for r in rows])
     e = np.array([r["end"] for r in rows])
-    # Die Marke steht am Absatzende: verglichen wird mit dem Ende des letzten
-    # Wortes davor. (Der Beginn des naechsten Wortes taugt nicht - dazwischen
-    # liegt oft ungeschriebenes Gespraech, in einem Interview ~200 s.)
+    # The mark stands at the end of a paragraph: it is compared with the end of the
+    # last word before it. (The start of the next word is no use - in between
+    # there is often untranscribed conversation, ~200 s in one interview.)
     err = e - t
     lag = float(np.median(err))
     dev = np.abs(err - lag)
@@ -126,17 +126,17 @@ def summarize(rows):
             "within_2s": round(float(np.mean(dev <= 2)), 3), "within_5s": round(float(np.mean(dev <= 5)), 3),
             "gross_gt_10s": int(np.sum(dev > GROSS_S)), "gross_gt_30s": int(np.sum(dev > 30))}
 
-# ------------------------------------------------------------ Whisper als Schiedsrichter
+# ------------------------------------------------------------ Whisper as referee
 
 def reference(W, wi):
-    """Die N_REF Woerter vor der Marke: normalisiert (zum Suchen) und wie im Transkript."""
+    """The N_REF words before the mark: normalised (for searching) and as in the transcript."""
     ws = W[max(0, wi - N_REF + 1): wi + 1]
     return (" ".join(w["norm"] for w in ws).replace("|", " "),
             re.sub(r"\s+([,.;:!?…])", r"\1", " ".join(w["w"] for w in ws)))
 
 
 class Hearer:
-    """Whisper-large-v3 ueber Fenster des 16-kHz-Audios, mit Zwischenspeicher."""
+    """Whisper-large-v3 over windows of the 16 kHz audio, with a cache."""
 
     def __init__(self, device="mps"):
         self.cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
@@ -145,7 +145,7 @@ class Hearer:
         self.device, self.asr, self.wavs, self.dirty = device, None, {}, False
 
     def window(self, iid, c):
-        """Fenster vor der Kandidatenstelle c -> Schluessel (Ergebnis im Cache)."""
+        """Window before candidate position c -> key (result in the cache)."""
         a, b = max(0.0, c - WIN_BEFORE), max(0.0, c - WIN_BEFORE) + WIN_BEFORE + WIN_AFTER
         key = f"{iid}:{a:.2f}:{b:.2f}"
         if key in self.cache["windows"]:
@@ -159,7 +159,7 @@ class Hearer:
             self.cache["revision"] = Path(snapshot_download(WHISPER, local_files_only=True)).name
         from eval_segments import Wav
         w = self.wavs.setdefault(iid, Wav(WORK / "audio16k" / f"{iid}.wav"))
-        # Kein Prompt, keine Vorgabe: Whisper hoert nur das Audio
+        # no prompt, no guidance: Whisper only hears the audio
         out = self.asr({"raw": w.read(a, b), "sampling_rate": SR}, return_timestamps="word",
                        generate_kwargs={"language": "de", "task": "transcribe"})
         words = [[ch["text"].strip(), None if ch["timestamp"][0] is None else round(a + ch["timestamp"][0], 2),
@@ -181,9 +181,9 @@ _HYP = {}
 
 
 def heard(win):
-    """Gehoertes eines Fensters, normalisiert wie das Transkript (align.norm_word):
-    Text, Zeichen-Ende jedes Worts, Zeit-Ende jedes Worts, Wort ohne Dauer?
-    Einmal je Fenster."""
+    """What was heard in a window, normalised like the transcript (align.norm_word):
+    text, character end of each word, time end of each word, word without duration?
+    Once per window."""
     if id(win) not in _HYP:
         from align import norm_word
         hyp, pos, ends, flat = "", [], [], []
@@ -199,13 +199,13 @@ def heard(win):
 
 
 def match(ref, win):
-    """Wie gut kommt der Soll-Text im Gehoerten vor (0-100), wo endet er, und
-    taugen die Wortzeiten dort? Hat Whisper weniger gehoert als der Soll-Text
-    lang ist, wird das Ganze verglichen - sonst ergaebe ein einzelnes passendes
-    Wort schon 100. Die Wortzeiten kollabieren gelegentlich (viele Woerter auf
-    demselben Zeitpunkt, ohne Dauer - ein Interview, Hoerprobe 30.09.2026):
-    Hat mehr als die Haelfte der gefundenen Woerter keine Dauer, sagt das
-    Fenster nichts darueber, WO die Stelle endet."""
+    """How well does the target text occur in what was heard (0-100), where does
+    it end, and are the word times usable there? If Whisper heard less than the
+    target text is long, the whole is compared - otherwise a single matching
+    word would already give 100. The word times occasionally collapse (many
+    words on the same point in time, without duration - one interview,
+    listening check 30.09.2026): if more than half of the words found have no
+    duration, the window says nothing about WHERE the passage ends."""
     from rapidfuzz import fuzz
     hyp, pos, ends, flat = heard(win)
     if not hyp or not ref:
@@ -223,17 +223,17 @@ def match(ref, win):
 
 
 def locate(ref, keys, hearer):
-    """Alle Fenster eines Falls -> [(Wert, Ende der Stelle, Zeit verlaesslich, Fenster)],
-    bester Wert zuerst."""
+    """All windows of a case -> [(score, end of passage, time reliable, window)],
+    best score first."""
     res = [(*match(ref, hearer.cache["windows"][k]), k) for k in keys]
     return sorted(res, key=lambda r: -r[0])
 
 
 def whisper_verdict(hits, c_al, c_mk):
-    """hits: Fenster ueber der Zufallsschwelle. -> (Urteil, Ende der Stelle).
-    Nur Fenster mit verlaesslichen Wortzeiten sagen etwas ueber den Ort; sagen
-    zwei davon Verschiedenes, bleibt der Fall unklar. Keine Bevorzugung einer
-    der beiden Kandidatenstellen, auch nicht bei gleichem Wert."""
+    """hits: windows above the chance threshold. -> (verdict, end of passage).
+    Only windows with reliable word times say anything about the position; if
+    two of them disagree, the case stays unclear. Neither candidate position
+    is preferred, not even at equal scores."""
     good = [h for h in hits if h[2] and h[1] is not None]
     if not good:
         return "unklar", None
@@ -252,7 +252,7 @@ def whisper_verdict(hits, c_al, c_mk):
 
 
 def collect(files):
-    """Alle Interviews mit gueltigen Marken -> (Kennzahlen, grobe Faelle, Kontrollkandidaten)."""
+    """All interviews with valid marks -> (figures, gross cases, control candidates)."""
     excluded = {s["id"] for s in load_specs() if s.get("exclude")}
     per, cases, calm = [], [], []
     for f in files:
@@ -265,7 +265,7 @@ def collect(files):
         W = d["words"]
         per.append({"id": d["id"], "rows": rows, "s": s, "excluded": d["id"] in excluded,
                     "audio_s": d["audio_s"],
-                    # Marken, deren Wort nicht aligniert ist, fehlen in rows - ausgewiesen, nicht verschwiegen
+                    # marks whose word is not aligned are missing from rows - reported, not hidden
                     "skipped": len(d.get("hand_markers", [])) - len(rows)})
         for r in rows:
             dev = abs(r["end"] - r["t"] - s["lag_s"])
@@ -282,10 +282,10 @@ def collect(files):
 
 
 def arbitrate(cases, calm, hearer):
-    """Whisper-Urteil fuer jeden groben Fall, Zufallsschwelle, Positivkontrolle."""
+    """Whisper verdict for every gross case, chance threshold, positive control."""
     rng = random.Random(CONTROL_SEED)
     controls = []
-    for iid in sorted({x["id"] for x in calm}):         # je Interview eine unstrittige Marke
+    for iid in sorted({x["id"] for x in calm}):         # one undisputed mark per interview
         controls.append(dict(rng.choice([x for x in calm if x["id"] == iid])))
     todo = [(x, c) for x in cases for c in (x["c_al"], x["c_mk"])] + [(x, x["c_al"]) for x in controls]
     for n, (x, c) in enumerate(todo, 1):
@@ -295,7 +295,7 @@ def arbitrate(cases, calm, hearer):
     hearer.save()
     for x in cases + controls:
         x["keys"] = list(dict.fromkeys(x["keys"]))
-    # Zufallsschwelle: Soll-Text gegen die Fenster eines Falls aus einem anderen Interview
+    # chance threshold: target text against the windows of a case from another interview
     null = [locate(x["ref"], y["keys"], hearer)[0][0]
             for x in cases + controls for y in cases + controls if y["id"] != x["id"]]
     thr = float(math.ceil(np.percentile(null, NULL_Q)))
@@ -303,8 +303,8 @@ def arbitrate(cases, calm, hearer):
         res = locate(x["ref"], x["keys"], hearer)
         hits = [r for r in res if r[0] >= thr]
         v, t = whisper_verdict(hits, x["c_al"], x["c_mk"])
-        # Liegen die Kandidatenstellen weniger als ein Fenster auseinander, kann die
-        # Stelle in beiden Fenstern stehen - dann entscheiden allein die Wortzeiten
+        # If the candidate positions are less than one window apart, the
+        # passage can stand in both windows - then the word times alone decide
         x.update({"hits": len(hits), "flat": sum(not r[2] for r in hits), "w_score": res[0][0], "w_end": t,
                   "w_text": hearer.cache["windows"][res[0][3]]["text"],
                   "d_al": None if t is None else round(abs(t - x["c_al"]), 2),
@@ -320,20 +320,20 @@ def arbitrate(cases, calm, hearer):
     return controls, info
 
 def delays(per, hearer, thr):
-    """Verzug der Marken, unabhaengig vom Alignment gemessen (Gutachten, Punkt 2).
+    """Delay of the marks, measured independently of the alignment (review, point 2).
 
-    Bisher wurde der Verzug je Interview als Median von (Wortende - Marke)
-    geschaetzt - aus denselben Marken, die dann gemessen werden. Ein
-    gleichbleibender Versatz des Alignments verschwand dabei im Verzug. Jetzt:
-    Je Interview N_DELAY zufaellige Marken (ohne die groben Faelle); Whisper
-    hoert ein 28-s-Fenster mittig zwischen Wortende laut Alignment und Marke
-    (keine der beiden Stellen bevorzugt) und sagt, wo die Woerter vor der Marke
-    enden (w). Gueltig ist eine Messung ueber der Zufallsschwelle mit
-    verlaesslichen Wortzeiten. Je Interview:
-      Verzug D  = Median(Marke - w)        wie spaet die Marke gesetzt wurde
-      Versatz A = Median(Wortende - w)     wie weit das Alignment neben Whisper liegt
-    Wortende - Marke = A - D: der alte Verzug vermengte beides. Korrigiert wird
-    nur noch um D; A bleibt im Fehler stehen."""
+    Previously the delay was estimated per interview as the median of
+    (word end - mark) - from the same marks that are then measured. A constant
+    offset of the alignment disappeared into the delay. Now: N_DELAY random
+    marks per interview (without the gross cases); Whisper hears a 28 s window
+    centred between the word end according to the alignment and the mark
+    (neither position preferred) and says where the words before the mark
+    end (w). A measurement is valid above the chance threshold with reliable
+    word times. Per interview:
+      delay D   = median(mark - w)         how late the mark was set
+      offset A  = median(word end - w)     how far the alignment lies from Whisper
+    word end - mark = A - D: the old delay mixed both. Only D is corrected
+    for now; A stays in the error."""
     rng = random.Random(DELAY_SEED)
     todo = []
     for p in per:
@@ -344,7 +344,7 @@ def delays(per, hearer, thr):
     meas = []
     for n, (p, r) in enumerate(todo, 1):
         mid = (r["end"] + r["t"]) / 2
-        key = hearer.window(p["id"], mid + WIN_BEFORE - 22.0)     # Fenster [mid - 22, mid + 6]
+        key = hearer.window(p["id"], mid + WIN_BEFORE - 22.0)     # window [mid - 22, mid + 6]
         sc, tw, ok = match(r["ref"], hearer.cache["windows"][key])
         meas.append({"id": p["id"], "wi": r["wi"], "t": r["t"], "end": r["end"], "score": sc, "w_end": tw,
                      "ok": ok, "valid": sc >= thr and ok and tw is not None})
@@ -367,10 +367,10 @@ def delays(per, hearer, thr):
 
 
 def errors(p, variant, est=None):
-    """Abweichung |Wortende - Marke - Korrektur| je Marke eines Interviews.
-    insample: Median derselben Marken (bis 29.09.2026); loo: Median der uebrigen
-    Marken desselben Interviews; whisper: Verzug D aus der unabhaengigen Messung
-    (fehlt sie, wird nicht korrigiert); roh: keine Korrektur."""
+    """Deviation |word end - mark - correction| per mark of an interview.
+    insample: median of the same marks (until 29.09.2026); loo: median of the
+    other marks of the same interview; whisper: delay D from the independent
+    measurement (if missing, no correction); roh: no correction."""
     err = np.array([r["end"] - r["t"] for r in p["rows"]])
     if variant == "insample":
         return np.abs(err - np.median(err))
@@ -382,7 +382,7 @@ def errors(p, variant, est=None):
     return np.abs(err)
 
 
-# ------------------------------------------------------------ Hoerprobe
+# ------------------------------------------------------------ listening check
 
 PAGE_HELP = """<div class="sub">__N__ Stellen &middot; __DATE__</div>
 <details class="help" open><summary>So wird bewertet</summary>
@@ -397,15 +397,15 @@ Die Notiz ist frei.</dd></dl></details>"""
 
 
 def must_hear(x):
-    """Faelle, die das Ohr immer bekommt: Whisper entscheidet nicht, widerspricht
-    dem Alignment, oder die Stelle steht in beiden Fenstern (dann entscheiden
-    allein die Wortzeiten)."""
+    """Cases the ear always gets: Whisper does not decide, contradicts the
+    alignment, or the passage stands in both windows (then the word times
+    alone decide)."""
     return x["v_whisper"] != "marke_falsch" or x["hits"] >= 2
 
 
 def ear_paths(r):
-    """Dateien der Hoerprobe-Runde r: Zuordnung (A/B-Schluessel), Bewertung,
-    Seitenordner, Name der heruntergeladenen CSV, Praefix der Fall-Kennungen."""
+    """Files of listening-check round r: assignment (A/B key), rating, page
+    folder, name of the downloaded CSV, prefix of the case IDs."""
     if r == 1:
         return EAR_TSV, EAR_CSV, EAR_DIR, "marker_hoerprobe.csv", "m"
     return (EVAL / f"marker_hoerprobe_{r}.tsv", EVAL / f"marker_hoerprobe_{r}_bewertung.csv",
@@ -413,7 +413,7 @@ def ear_paths(r):
 
 
 def ear_rounds():
-    """Angelegte Runden: 1, 2, ... solange die Zuordnung existiert."""
+    """Rounds created: 1, 2, ... as long as the assignment exists."""
     r = 1
     while ear_paths(r)[0].exists():
         r += 1
@@ -425,11 +425,11 @@ def case_key(x):
 
 
 def build_ear(cases, date):
-    """Naechste Runde der blinden A/B-Hoerprobe. Runde 1: alle Faelle nach
-    must_hear, dazu eine Zufallsstichprobe der uebrigen (ein Viertel,
-    mindestens 5) als Probe auf Whisper. Jede weitere Runde: nur Faelle nach
-    must_hear, die noch auf keiner Seite standen (z. B. nach einer
-    Regelaenderung). Fruehere Runden bleiben unangetastet."""
+    """Next round of the blind A/B listening check. Round 1: all cases from
+    must_hear, plus a random sample of the rest (a quarter, at least 5) as a
+    check on Whisper. Every further round: only cases from must_hear that
+    have not yet been on any page (e.g. after a rule change). Earlier rounds
+    stay untouched."""
     from make_samples import PAGE_AB
     r = len(ear_rounds()) + 1
     tsv, _, folder, download, prefix = ear_paths(r)
@@ -500,7 +500,7 @@ def build_ear(cases, date):
 
 
 def import_ear(path):
-    """Heruntergeladene Bewertung der passenden Runde zuordnen (an den Fall-Kennungen)."""
+    """Assign a downloaded rating to the matching round (by the case IDs)."""
     rows = list(csv.DictReader(open(path, encoding="utf-8-sig", newline=""), delimiter=";"))
     m = re.fullmatch(r"r(\d+)m\d+|m\d+", rows[0]["fall"]) if rows else None
     if not m:
@@ -514,9 +514,9 @@ def import_ear(path):
 
 
 def ear_verdicts():
-    """Bewertungen aller Runden -> {(id, wi, t): (Urteil, Notiz)}. A/B werden
-    zurueckuebersetzt: gehoert im Ausschnitt am Alignment -> Marke falsch, an
-    der Marke -> Alignment falsch, in keinem -> beide falsch."""
+    """Ratings of all rounds -> {(id, wi, t): (verdict, note)}. A/B are mapped
+    back: heard in the excerpt at the alignment -> mark wrong, at the mark ->
+    alignment wrong, in neither -> both wrong."""
     out = {}
     for r in ear_rounds():
         tsv, rated = ear_paths(r)[:2]
@@ -533,7 +533,7 @@ def ear_verdicts():
             out[case_key(m)] = (v, q.get("notiz", ""))
     return out
 
-# ------------------------------------------------------------ Hauptprogramm
+# ------------------------------------------------------------ main program
 
 def main():
     ap = argparse.ArgumentParser()
@@ -569,7 +569,7 @@ def main():
     info.update({"verzug_messungen": len(meas), "verzug_gueltig": sum(m["valid"] for m in meas),
                  "verzug_je_interview": N_DELAY, "verzug_ohne_schaetzung": sorted(k for k, v in est.items()
                                                                                    if v["D"] is None)})
-    # ---- Ausgabe je Interview
+    # ---- output per interview
     print(f"Schiedsrichter {WHISPER}: Zufallsschwelle {info['threshold']:.0f} ({NULL_Q}. Perzentil von "
           f"{info['null_n']} Zufallspaaren, Median {info['null_median']}); Positivkontrolle: gefunden "
           f"{info['controls_found']} von {info['controls_n']} unstrittigen Marken; Hoerprobe: {len(heard)} Faelle")

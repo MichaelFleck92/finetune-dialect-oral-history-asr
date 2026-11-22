@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Namen auf ganzen Interviews: dieselben geprüften Nennungen wie in
-entity_eval.py (Test-Segmente), gesucht in der Ausgabe von longform_eval.py.
-Jedes Wort eines Test-Segments liegt über seine Alignment-Zeit in einem Stück; die
-Stückausgabe wird gegen alle Transkriptwörter des Stücks aligniert (Levenshtein wie in
-entity_eval). Eine Nennung gilt als erkannt, wenn alle ihre Wörter "equal" sind.
+Names on complete interviews: the same reviewed mentions as in
+entity_eval.py (test segments), searched for in the output of longform_eval.py.
+Every word of a test segment lies in a chunk via its alignment time; the
+chunk output is aligned against all transcript words of the chunk (Levenshtein as
+in entity_eval). A mention counts as recognised if all its words are "equal".
 
   python3 training/longform_entities.py baseline-large-v3:beam5fb baseline-large-v3:beam5fb-buch1 \
       --liste namensliste.txt
 
-Der erste Lauf ist die Bezugsgröße (McNemar, Bootstrap über Interviews). "sauber" = die
-Nennung liegt in einem Stück ohne ausgelassene Sprache (wie longform_score.py). Mit
---liste: PER/LOC/ORG getrennt nach in / nicht in der Liste, dazu eingefügte Listennamen
-(in der Stückausgabe öfter als in den Transkriptwörtern des Stücks).
---projekte rs,re: nur diese Projekte (Kürzel vor dem ersten _ im Interviewnamen).
--> training/longform/nennungen[_<projekte>].json. Ausgegeben werden nur Zahlen.
+The first run is the reference (McNemar, bootstrap over interviews). "sauber" = the
+mention lies in a chunk without omitted speech (as in longform_score.py). With
+--liste: PER/LOC/ORG separately for in / not in the list, plus inserted list names
+(more frequent in the chunk output than in the chunk's transcript words).
+--projekte rs,re: only these projects (prefix before the first _ in the interview name).
+-> training/longform/nennungen[_<projekte>].json. Only figures are printed.
 """
 import argparse, csv, json, sys
 from collections import defaultdict
@@ -33,7 +33,7 @@ PROJ = {"rs": "Roter Stern", "re": "Rechnitz", "za": "Zwangsarbeiter"}
 
 
 def load_mentions():
-    """Interview -> [(Segment-Start, -Ende, normalisierte Wörter, [(Typ, Text, Wortindizes)], Segment, Wortspannen, Text)]."""
+    """Interview -> [(segment start, end, normalised words, [(type, text, word indices)], segment, word spans, text)]."""
     keep = {}
     with open(ENT / "entitaeten_test_geprueft.csv", encoding="utf-8") as fh:
         for r in csv.DictReader(fh, delimiter=";"):
@@ -62,17 +62,17 @@ def load_mentions():
 
 
 def snippet(text, spans, a, b):
-    """Originaltext der normalisierten Wörter a..b-1 (Spannen aus word_spans)."""
+    """Original text of the normalised words a..b-1 (spans from word_spans)."""
     a, b = max(0, a), min(len(spans), b)
     return text[spans[a][1]:spans[b - 1][2]] if b > a else ""
 
 
 def word_map(ref, hyp):
-    """Wortweise Zuordnung (Levenshtein-editops): je Referenzwort (Position in hyp, zugeordnet?) -
-    gleich oder ersetzt: True, ausgelassen: False an der Stelle, wo es stünde; dazu die eingefügten Positionen."""
+    """Word-by-word alignment (Levenshtein editops): per reference word (position in hyp, aligned?) -
+    equal or substituted: True, deleted: False at the place where it would be; plus the inserted positions."""
     m, ins, i, j = [None] * len(ref), set(), 0, 0
     for op in Levenshtein.editops(ref, hyp):
-        while i < op.src_pos:                               # gleiche Strecke davor
+        while i < op.src_pos:                               # same distance before
             m[i] = (j, True); i += 1; j += 1
         if op.tag == "replace":
             m[i] = (j, True); i += 1; j += 1
@@ -86,10 +86,10 @@ def word_map(ref, hyp):
 
 
 def best_span(target, hw, h0, h1, ins, n=2, w=3):
-    """Ausgabebereich [h0, h1) der Nennung, an den Rändern um bis zu n eingefügte Wörter erweitert,
-    wenn das dem Namen näher kommt (z. B. ein Name als zwei Wörter); ist ein Bereich bis zu w Wörter
-    daneben deutlich näher (+10 Punkte, mindestens 60 %), dieser - die Zuordnung verrutscht, wenn die Ausgabe einen
-    Satzteil auslässt; -> (a, b, Ähnlichkeit)."""
+    """Output range [h0, h1) of the mention, extended at the edges by up to n inserted words
+    if that comes closer to the name (e.g. a name as two words); if a range up to w words
+    away is clearly closer (+10 points, at least 60 %), that one - the alignment slips when the output
+    omits part of a sentence; -> (a, b, similarity)."""
     best = None
     for l in range(n + 1):
         if l and h0 - l not in ins:
@@ -120,8 +120,8 @@ def count_names(ws, by_first):
 
 
 def collect(runs, lst=frozenset(), ctx=6, projekte=None):
-    """Je Nennung: Typ, in der Liste?, sauber?, je Lauf erkannt / Ausgabe / Ähnlichkeit (fuzz.ratio
-    wie entity_eval) und Zusammenhang (je ctx Wörter davor und danach); dazu eingefügte Listennamen."""
+    """Per mention: type, in the list?, clean?, per run recognised / output / similarity (fuzz.ratio
+    as in entity_eval) and context (ctx words before and after each); plus inserted list names."""
     by_first = defaultdict(list)
     for s in lst:
         by_first[s[0]].append(s)
@@ -145,7 +145,7 @@ def collect(runs, lst=frozenset(), ctx=6, projekte=None):
             rw = [ref[i][2][j] for i, j in keys]
             cr = count_names(rw, by_first) if lst else {}
             for r, out in enumerate(outs):
-                assert out[ci][:2] == [s, e], iv                   # alle Läufe mit denselben Stücken
+                assert out[ci][:2] == [s, e], iv                   # all runs with the same chunks
                 sp = word_spans(out[ci][2])
                 hw = [w for w, _, _ in sp]
                 st = align(rw, hw)
@@ -163,7 +163,7 @@ def collect(runs, lst=frozenset(), ctx=6, projekte=None):
                 clean[key] = ok
         for a0, b0, sw, es, fn, spans, text in segs.get(iv, []):
             keys = [(i, j) for i, j in flat if a0 <= ref[i][0] <= b0]
-            assert [ref[i][2][j] for i, j in keys] == sw, iv          # Segmenttext = Transkriptwörter
+            assert [ref[i][2][j] for i, j in keys] == sw, iv          # segment text = transcript words
             for typ, etext, idx in es:
                 ks = [keys[i] for i in idx]
                 unplaced += not all(k in clean for k in ks)
@@ -175,7 +175,7 @@ def collect(runs, lst=frozenset(), ctx=6, projekte=None):
                      "erkannt": [all(status[r].get(k, False) for k in ks) for r in range(len(runs))],
                      "ausgabe": [], "vor": [], "nach": [], "aehnlichkeit": [], "stelle": []}
                 for r in range(len(runs)):
-                    parts = defaultdict(list)                       # Stück -> Zuordnung der Nennungswörter
+                    parts = defaultdict(list)                       # chunk -> alignment of the mention words
                     for k in ks:
                         if k in pos[r]:
                             parts[pos[r][k][0]].append(pos[r][k][1])
@@ -183,13 +183,13 @@ def collect(runs, lst=frozenset(), ctx=6, projekte=None):
                     for n, ci in enumerate(sorted(parts)):
                         htext, sp, hw, ins = hyps[r][ci]
                         hit = [j for j, ok in parts[ci] if ok]
-                        h0, h1 = (min(hit), max(hit) + 1) if hit else (parts[ci][0][0],) * 2   # leer = ausgelassen
+                        h0, h1 = (min(hit), max(hit) + 1) if hit else (parts[ci][0][0],) * 2   # empty = omitted
                         x0, x1, _ = best_span(target, hw, h0, h1, ins)
                         if x1 > x0:
                             got.append(snippet(htext, sp, x0, x1))
                         if n == 0:
                             vor = snippet(htext, sp, x0 - ctx, x0)
-                            stelle = (ci, x0, x1)                  # Stück und Wortbereich [x0, x1) in der Ausgabe
+                            stelle = (ci, x0, x1)                  # chunk and word range [x0, x1) in the output
                         nach = snippet(htext, sp, x1, x1 + ctx)
                     norm = " ".join(w for g in got for w in words(g))
                     m["ausgabe"].append(" ".join(got)); m["vor"].append(vor); m["nach"].append(nach); m["stelle"].append(stelle)

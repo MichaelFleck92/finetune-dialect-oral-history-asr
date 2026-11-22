@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Warum ist der Gewinn auf ganzen Interviews kleiner als auf den Test-Segmenten?
-Zerlegt die "sauberen" Stücke aus longform_score.py (nur Zahlen):
+Why is the gain on complete interviews smaller than on the test segments?
+Breaks down the "clean" chunks from longform_score.py (figures only):
 
   python3 training/longform_analysis.py baseline-large-v3:beam5fb l3-r16-lr5e-4-e3/ep3:beam5fb
 
-1. dieselben Wörter: jedes Wort eines Test-Segments, das in einem sauberen Stück
-   liegt, einmal als Segment (predictions_test_<tag>.csv), einmal im ganzen Interview
-   ausgewertet - falsch oder fehlend, dazu Einfügungen zwischen zwei Wörtern
-   desselben Segments; nach Segmentlänge.
-2. saubere Stücke nach Herkunft der Wörter (ganz / teils / nicht aus Test-Segmenten),
-   Sprecherzahl und Stücklänge.
-3. Fehlerarten (falsch / fehlt / eingefügt), Fehler nach Position im Stück
-   (das Training kennt nur Segmente bis 20,4 s), Einfügungen am Rand (je 1 s) und in
-   der Mitte je Minute.
+1. the same words: every word of a test segment that lies in a clean chunk,
+   scored once as a segment (predictions_test_<tag>.csv) and once in the
+   complete interview - wrong or missing, plus insertions between two words of
+   the same segment; by segment length.
+2. clean chunks by origin of the words (wholly / partly / not from test segments),
+   number of speakers and chunk length.
+3. error types (wrong / missing / inserted), errors by position in the chunk
+   (training only knows segments up to 20.4 s), insertions at the edges (1 s each)
+   and in the middle per minute.
 -> training/longform/analyse.json
 """
 import csv, json, sys
@@ -30,7 +30,7 @@ SEG_BINS = [(0, 3), (3, 6), (6, 10), (10, 15), (15, 99)]
 
 
 def ref_words(iv, audio_s):
-    """Transkriptwörter (Mitte, Sprecher, normalisierte Wörter) und Lücken wie in longform_score."""
+    """Transcript words (midpoint, speaker, normalised words) and gaps as in longform_score."""
     a = json.loads((ROOT / "work" / "aligned" / f"{iv}.json").read_text(encoding="utf-8"))
     ws, out, last = a["words"], [], 0.0
     for w in ws:
@@ -47,7 +47,7 @@ def ref_words(iv, audio_s):
 
 
 def flags(r, h):
-    """Je Referenzwort: falsch oder fehlend (0/1); Einfügungen vor jedem Wort (Index len(r) = am Ende); Fehlerarten."""
+    """Per reference word: wrong or missing (0/1); insertions before each word (index len(r) = at the end); error types."""
     f, ins, kinds = [0] * len(r), [0] * (len(r) + 1), defaultdict(int)
     for op in Levenshtein.editops(r, h):
         kinds[op.tag] += 1
@@ -73,8 +73,8 @@ def main():
         with open(RUNS / n / f"predictions_test_{t}.csv", encoding="utf-8") as f:
             pred.append({r["file_name"]: (words(r["referenz"]), words(r["hypothese"])) for r in csv.DictReader(f)})
 
-    same = defaultdict(lambda: [0, [0, 0], [0, 0]])       # Längenklasse -> [Wörter, [Seg, Stück] Basis, [Seg, Stück] FT]
-    groups = defaultdict(lambda: [[0, 0], [0, 0]])        # Gruppe -> je Lauf [Fehler, Wörter]
+    same = defaultdict(lambda: [0, [0, 0], [0, 0]])       # length class -> [words, [seg, chunk] base, [seg, chunk] FT]
+    groups = defaultdict(lambda: [[0, 0], [0, 0]])        # group -> per run [errors, words]
     pos = defaultdict(lambda: [[0, 0], [0, 0]])
     kinds = {k: [defaultdict(int), defaultdict(int)] for k in ("Segmente", "Stücke")}
     edge, secs = [defaultdict(int), defaultdict(int)], defaultdict(float)
@@ -127,7 +127,7 @@ def main():
                         edge[r]["Rand" if tm < 1.0 or tm > e - s - 1.0 else "Mitte"] += ins[p]
         for k, (a, b, fn, d) in enumerate(sg):
             keys = seg_keys[k]
-            assert [ref[i][2][j] for i, j in keys] == pred[0][fn][0], fn   # Segmenttext = Transkriptwörter
+            assert [ref[i][2][j] for i, j in keys] == pred[0][fn][0], fn   # segment text = transcript words
             n_words["Segmente"] += len(keys)
             sf = [flags(*pred[r][fn]) for r in range(2)]
             for r in range(2):
@@ -138,7 +138,7 @@ def main():
             n_same += 1
             acc = same[next(x for x in SEG_BINS if x[0] <= d < x[1])]
             for p, key in enumerate(keys):
-                inner = p + 1 < len(keys)                   # Einfügung zwischen zwei Wörtern desselben Segments
+                inner = p + 1 < len(keys)                   # insertion between two words of the same segment
                 acc[0] += 1
                 for r in range(2):
                     acc[1 + r][0] += sf[r][0][p] + (sf[r][1][p + 1] if inner else 0)

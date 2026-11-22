@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Hat das feingetunte Modell die Namen aus den Trainingstranskripten gelernt - oder
-erkennt es auch Namen, die dort nie vorkommen?
+Has the fine-tuned model learned the names from the training transcripts - or
+does it also recognise names that never occur there?
 
   python3 training/entity_train_overlap.py --a baseline-large-v3 --b l3-r16-lr5e-4-e3/ep3 --tag beam5fb
 
-Liest die Nennungen aus entity_eval.py (training/entities/nennungen_<...>.csv) und
-die Transkripte des Trainingsteils (dataset/metadata.jsonl, Feld text - das, was das
-Modell im Training gesehen hat). Je Nennung: Kommt die Wortfolge der Entität
-(normalisiert wie die WER) im Trainingstext vor, und wie oft? Dann Erkennungsrate
-beider Modelle getrennt nach "im Training gesehen" / "nie gesehen" und nach
-Häufigkeit, und wie viele der Nennungen, die nur das feingetunte Modell trifft,
-im Training standen. Ausgegeben werden nur Zahlen.
+Reads the mentions from entity_eval.py (training/entities/nennungen_<...>.csv) and
+the transcripts of the training part (dataset/metadata.jsonl, field text - what
+the model saw in training). Per mention: does the word sequence of the entity
+(normalised like the WER) occur in the training text, and how often? Then the
+recognition rate of both models separately for "seen in training" / "never seen"
+and by frequency, and how many of the mentions that only the fine-tuned model
+gets right were in the training data. Only figures are printed.
 -> training/entities/training_ueberlappung_<split>[_<tag>]_<a>_vs_<b>.json
 """
 import argparse, csv, json, sys
@@ -38,7 +38,7 @@ def main():
     rows = list(csv.DictReader(open(ENT / f"nennungen_{stem}.csv", encoding="utf-8"), delimiter=";"))
     ka, kb = f"erkannt_{a.a}", f"erkannt_{a.b}"
 
-    # Wortfolgen der Entitäten und wie oft sie im Trainingstext stehen
+    # word sequences of the entities and how often they occur in the training text
     seqs = {r["text"]: tuple(words(r["text"])) for r in rows}
     lengths = {len(s) for s in seqs.values() if s}
     wanted = set(seqs.values())
@@ -81,7 +81,7 @@ def main():
         res[NAMES[t]] = table([r for r in core if r["typ"] == t], NAMES[t])
     res["sonstiges"] = table([r for r in rows if r["typ"] == "MISC"], "Sonstiges")
 
-    # Die Nennungen, die nur ein Modell trifft
+    # the mentions that only one model gets right
     print("\nNur von einem Modell getroffen (Namen und Daten):")
     res["nur_eines"] = {}
     for who, cond in (("nur B", lambda r: r[kb] == "1" and r[ka] == "0"), ("nur A", lambda r: r[ka] == "1" and r[kb] == "0"),

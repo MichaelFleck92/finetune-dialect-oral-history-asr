@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-LoRA-Feintuning von Parakeet (NVIDIA nvidia/parakeet-tdt-0.6b-v3, NeMo) auf dem train-Teil des Datensatzes –
-Gegenstück zu whisper_lora.py für den Vergleich Whisper/Parakeet, je ohne und mit Feintuning (16.11.2026).
+LoRA fine-tuning of Parakeet (NVIDIA nvidia/parakeet-tdt-0.6b-v3, NeMo) on the train part of the dataset –
+counterpart to whisper_lora.py for the Whisper/Parakeet comparison, each without and with fine-tuning (16.11.2026).
 
   ~/venv-nemo/bin/python training/parakeet_lora.py --name pk-r16-lr5e-4-e3 --epochs 3 --lr 5e-4
 
-Gleich wie bei Whisper: dieselben Segmente (dataset/metadata.jsonl, Audio über ffmpeg wie bei der Auswertung),
-Ziel ist derselbe Text (`text`, mit Groß-/Kleinschreibung und Satzzeichen; Parakeets Tokenizer kennt beides),
-dieselbe LoRA-Klasse (whisper_common.LoRALinear, r = 16, alpha = 32, Dropout 0,05), AdamW (weight decay 0,01),
-lineares Aufwärmen (höchstens 100 Schritte) und lineares Abklingen, Gradienten-Norm auf 1 begrenzt, je Schritt
-16 Segmente, dev-Verlust auf derselben festen Auswahl (256 Segmente) vor dem Training und nach jeder Epoche,
-Zwischenstand je Epoche in training/runs/<name>/ep<k>/. Abgestimmt wird nur auf dev; test bleibt für den Schluss.
+Same as for Whisper: the same segments (dataset/metadata.jsonl, audio via ffmpeg as in the evaluation),
+the target is the same text (`text`, with case and punctuation; Parakeet's tokenizer knows both),
+the same LoRA class (whisper_common.LoRALinear, r = 16, alpha = 32, dropout 0.05), AdamW (weight decay 0.01),
+linear warm-up (at most 100 steps) and linear decay, gradient norm clipped at 1, 16 segments
+per step, dev loss on the same fixed selection (256 segments) before training and after every epoch,
+checkpoint per epoch in training/runs/<name>/ep<k>/. Tuning is done on dev only; test is kept for the end.
 
-Parakeet-spezifisch: LoRA in Encoder (Attention + Feed-Forward) und Joint-Netz (parakeet_common.TARGETS).
-Verlust ist der TDT-Transducer-Verlust des Modells (NeMo, über numba-cuda), gemittelt je Ziel-Token
-("mean_volume", wie die Kreuzentropie bei Whisper; NeMo-Standard wäre je Segment). Das Joint-Netz rechnet in
-Teilbatches (NeMo "fused", --fused-batch). Basis bleibt in fp32 eingefroren, gerechnet unter autocast (bf16).
-BatchNorm in den Faltungsmodulen bleibt im Auswertungsmodus (die gelernten Statistiken der Basis bleiben
-unverändert, sonst würde das eingefrorene Modell trotzdem driften). Dropout des Modells bleibt wie konfiguriert
-(Encoder 0,1, Joint 0,2). SpecAugment nur mit --spec-augment (Whisper-Endmodell: ohne).
-Ausgegeben werden nur Zahlen. -> training/runs/<name>/ (lora.pt, lora.json, log.csv)
+Parakeet-specific: LoRA in the encoder (attention + feed-forward) and joint network (parakeet_common.TARGETS).
+The loss is the model's TDT transducer loss (NeMo, via numba-cuda), averaged per target token
+("mean_volume", like the cross-entropy for Whisper; the NeMo default would be per segment). The joint network
+computes in sub-batches (NeMo "fused", --fused-batch). The base stays frozen in fp32, computed under autocast (bf16).
+BatchNorm in the convolution modules stays in evaluation mode (the base's learned statistics stay
+unchanged, otherwise the frozen model would drift anyway). The model's dropout stays as configured
+(encoder 0.1, joint 0.2). SpecAugment only with --spec-augment (final Whisper model: without).
+Only figures are printed. -> training/runs/<name>/ (lora.pt, lora.json, log.csv)
 
-Danach: ~/venv-nemo/bin/python training/parakeet_eval.py --modus segmente --split dev --adapter training/runs/<name> --name <name>
-Probe: --max-steps N bricht nach N Optimierungsschritten ab (Zeit, Speicher, Verlauf prüfen).
+Then: ~/venv-nemo/bin/python training/parakeet_eval.py --modus segmente --split dev --adapter training/runs/<name> --name <name>
+Trial: --max-steps N stops after N optimisation steps (to check time, memory, progress).
 """
 import argparse, csv, json, os, sys, time
 from pathlib import Path
@@ -32,7 +32,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-if not hasattr(np, "row_stack"):     # numba-cuda 0.30 (TDT-Verlust) ruft np.row_stack, in NumPy 2.4 entfernt
+if not hasattr(np, "row_stack"):     # numba-cuda 0.30 (TDT loss) calls np.row_stack, removed in NumPy 2.4
     np.row_stack = np.vstack
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -40,8 +40,8 @@ from parakeet_common import MODEL, RUNS, TARGETS, split_rows, load_audio, add_lo
 
 
 class Segments(Dataset):
-    """Segment -> (Audio float32 16 kHz, Token-Ids des Zieltexts). Tokenisiert wird vorab im Hauptprozess
-    (der NeMo-Tokenizer muss so nicht in die Worker-Prozesse)."""
+    """Segment -> (audio float32 16 kHz, token IDs of the target text). Tokenised in advance in the main process
+    (so the NeMo tokenizer does not have to go into the worker processes)."""
 
     def __init__(self, rows, tokenizer):
         self.rows = rows
@@ -58,7 +58,7 @@ def collate(batch):
     sig_len = torch.tensor([len(x) for x, _ in batch], dtype=torch.long)
     sig = torch.zeros(len(batch), int(sig_len.max()))
     tr_len = torch.tensor([len(ids) for _, ids in batch], dtype=torch.long)
-    tr = torch.zeros(len(batch), max(1, int(tr_len.max())), dtype=torch.long)    # Auffüllen mit 0 wie NeMo
+    tr = torch.zeros(len(batch), max(1, int(tr_len.max())), dtype=torch.long)    # pad with 0 as NeMo does
     for k, (x, ids) in enumerate(batch):
         sig[k, :len(x)] = torch.from_numpy(x)
         tr[k, :len(ids)] = torch.tensor(ids, dtype=torch.long)
@@ -66,7 +66,7 @@ def collate(batch):
 
 
 def batch_loss(model, batch, device):
-    """TDT-Verlust je Ziel-Token (mean_volume) und Zahl der Ziel-Token."""
+    """TDT loss per target token (mean_volume) and number of target tokens."""
     sig, sig_len, tr, tr_len = (t.to(device, non_blocking=True) for t in batch)
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device == "cuda"):
         enc, enc_len = model.forward(input_signal=sig, input_signal_length=sig_len)
@@ -77,7 +77,7 @@ def batch_loss(model, batch, device):
 
 
 def set_train(model, on):
-    """train/eval umschalten; BatchNorm bleibt immer im Auswertungsmodus (eingefrorene Statistiken)."""
+    """Switch train/eval; BatchNorm always stays in evaluation mode (frozen statistics)."""
     model.train(on)
     for m in model.modules():
         if isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
@@ -86,9 +86,9 @@ def set_train(model, on):
 
 @torch.no_grad()
 def dev_loss(model, loader, device):
-    """Mittlerer Verlust je Ziel-Token auf der dev-Auswahl. Der TDT-Verlust nimmt im Training mit
-    Wahrscheinlichkeit omega (Modell: 0,1) je Teilbatch den gewöhnlichen RNN-T-Verlust; für einen
-    vergleichbaren dev-Verlust ist omega hier 0."""
+    """Mean loss per target token on the dev selection. In training, the TDT loss uses the plain
+    RNN-T loss per sub-batch with probability omega (model: 0.1); for a comparable dev loss,
+    omega is 0 here."""
     set_train(model, False)
     tdt = model.joint.loss._loss
     omega, tdt.omega = tdt.omega, 0.0
@@ -153,7 +153,7 @@ def main():
     tl = DataLoader(Segments(train_rows, model.tokenizer), batch_size=a.batch, shuffle=True, collate_fn=collate,
                     generator=torch.Generator().manual_seed(a.seed), **extra)
     dl = DataLoader(Segments(dev_rows, model.tokenizer), batch_size=a.batch, collate_fn=collate, **extra) if use_dev else None
-    total = a.epochs * -(-len(tl) // a.accum)        # Optimierungsschritte
+    total = a.epochs * -(-len(tl) // a.accum)        # optimisation steps
     warm = max(1, min(100, total // 10))
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(
@@ -211,7 +211,7 @@ def main():
             d = dev_loss(model, dl, device)
             log.append({"schritt": step, "epoche": ep + 1, "dev_verlust": round(d, 4), "sekunden": round(time.time() - t0, 1)})
             print(f"Epoche {ep+1}: dev-Verlust {d:.3f} (vorher {d0:.3f})", flush=True)
-        if a.epochs > 1 and not stop:            # Zwischenstand je Epoche, auswertbar wie ein eigener Lauf
+        if a.epochs > 1 and not stop:            # checkpoint per epoch, can be evaluated like a run of its own
             save(out / f"ep{ep+1}", epoch=ep + 1, dev_loss_after=None if d is None else round(d, 4))
         if stop:
             break

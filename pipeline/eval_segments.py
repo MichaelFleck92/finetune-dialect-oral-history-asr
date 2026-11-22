@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-Unabhaengige Pruefung der Segmente mit einem anderen Erkenner (Whisper-small).
+Independent check of the segments with a different recogniser (Whisper-small).
 
-v1 pruefte das wav2vec2-Alignment mit demselben wav2vec2-Modell - beide
-Zahlen massen, wie gut dieses eine Modell das Audio versteht. Hier:
+v1 checked the wav2vec2 alignment with the same wav2vec2 model - both
+figures measured how well this one model understands the audio. Here:
 
-  1. CER von Whisper-small gegen den Segmenttext, fuer eine zufaellige,
-     dauerproportionale Stichprobe aus behaltenen UND verworfenen Segmenten.
-     Die absolute CER spiegelt Dialekt und Aufnahme; aussagekraeftig ist der
-     Vergleich: behalten vs. verworfen, hoch vs. mittel. Beide Schichten sind
-     getrennt gezogen; was ueber beide geht (Kalibrierung), wird mit den
-     Schichtgroessen (Spalten stratum_s, stratum_n) auf den Bestand hochgerechnet.
-  2. Verschiebetest: dieselben Segmente mit um -1 s und +1 s verschobenen
-     Grenzen. Liegen die Grenzen richtig, erkennt Whisper am Original am
-     meisten vom Soll-Text wieder. Das haengt nicht davon ab, wie schwer der
-     Dialekt ist - nur davon, wo die Grenzen liegen.
+  1. CER of Whisper-small against the segment text, for a random,
+     duration-proportional sample of kept AND discarded segments.
+     The absolute CER reflects dialect and recording; what is informative is
+     the comparison: kept vs. discarded, high vs. medium. The two strata are
+     drawn separately; anything across both (calibration) is extrapolated to
+     the whole set with the stratum sizes (columns stratum_s, stratum_n).
+  2. Shift test: the same segments with boundaries shifted by -1 s and +1 s.
+     If the boundaries are right, Whisper recognises most of the target text
+     in the original. This does not depend on how strong the dialect is -
+     only on where the boundaries lie.
 
-Ergebnis: work/eval/segments_whisper.csv und eine Zusammenfassung.
+Result: work/eval/segments_whisper.csv and a summary.
 
   PYTORCH_ENABLE_MPS_FALLBACK=1 python3 pipeline/eval_segments.py --n 500 --shift 150
 """
@@ -44,18 +44,18 @@ def cer(ref, hyp):
     return Levenshtein.distance(ref, hyp) / len(ref)
 
 
-MIN_OTHERS = 3      # so viele andere behaltene Segmente braucht der Interview-Median
+MIN_OTHERS = 3      # this many other kept segments are needed for the interview median
 
 
 def bad_flags(rows):
-    """'Schlecht' je Zeile der Stichprobe: Whisper liegt mehr als 0,3 ueber dem,
-    was es sonst bei diesem Interview erreicht, oder erkennt praktisch nichts
-    (CER > 0,9). Vergleichswert ist der Median der CER der UEBRIGEN behaltenen
-    Segmente desselben Interviews in der Stichprobe; sind es weniger als
-    MIN_OTHERS, der uebrigen behaltenen desselben Projekts (die Projekte liegen
-    weit auseinander: Median 0,16 / 0,30 / 0,36). Bis 01.10.2026 zaehlte das
-    Segment selbst mit - bei 1-2 gezogenen Segmenten je Interview (14 von 82)
-    war es dann kaum je 'schlecht' (Review): behalten 4,4 statt 5,8 %."""
+    """'Bad' per row of the sample: Whisper is more than 0.3 above what it
+    otherwise achieves for this interview, or recognises practically nothing
+    (CER > 0.9). The reference is the median CER of the OTHER kept segments
+    of the same interview in the sample; if there are fewer than MIN_OTHERS,
+    of the other kept segments of the same project (the projects lie far
+    apart: median 0.16 / 0.30 / 0.36). Until 01.10.2026 the segment itself
+    was included - with 1-2 drawn segments per interview (14 of 82) it was
+    then hardly ever 'bad' (review): kept 4.4 instead of 5.8 %."""
     cer_ = [float(r["cer"]) for r in rows]
     keep = [r["kind"] == "keep" for r in rows]
     iv = [r["id"] for r in rows]
@@ -96,9 +96,9 @@ def candidate_rules():
 
 
 def current_strata():
-    """Sekunden je Schicht (behalten / verworfen) im aktuellen Stand, ohne
-    ausgeschlossene Interviews - fuer CSVs von vor dem 01.10.2026, die die
-    Schichtgroessen noch nicht mitschreiben."""
+    """Seconds per stratum (kept / discarded) in the current version, without
+    excluded interviews - for CSVs from before 01.10.2026, which do not yet
+    record the stratum sizes."""
     tot = collections.Counter()
     for spec in load_specs():
         f = WORK / "segments" / f"{spec['id']}.json"
@@ -110,21 +110,21 @@ def current_strata():
 
 
 def calibration(rows, n_boot=2000, seed=1):
-    """Schwellen fuer keep_rule begruenden. "Schlecht" heisst: Whisper liegt
-    bei diesem Segment deutlich ueber dem, was es bei derselben Person sonst
-    erreicht (CER - Median der uebrigen behaltenen Segmente dieses Interviews
-    > 0.3, siehe bad_flags) oder erkennt praktisch nichts (CER > 0.9). So misst
-    die Kennzahl Fehlpaare, nicht Dialekt. Verglichen werden Regeln nach
-    Trefferquote und Verlust.
+    """Justify the thresholds for keep_rule. "Bad" means: for this segment,
+    Whisper is clearly above what it otherwise achieves for the same person
+    (CER - median of the other kept segments of this interview > 0.3, see
+    bad_flags) or recognises practically nothing (CER > 0.9). So the figure
+    measures mismatched pairs, not dialect. Rules are compared by hit rate
+    and loss.
 
-    Behaltene und verworfene Segmente sind getrennt gezogen (500 zu 150, je
-    Schicht nach Dauer), die verworfenen also stark uebervertreten. Bis
-    01.10.2026 wurde die Stichprobe ungewichtet ausgewertet - "findet 73 % der
-    schlechten" und "13 % schlecht" galten nur fuer die Stichprobe (Review).
-    Jetzt steht jedes gezogene Segment fuer seinen Anteil am Bestand
-    (Schichtdauer / Zahl der Gezogenen): Anteile, Trefferquote und Verlust
-    gelten fuer die Stunden des Bestands. 95 %-Intervalle aus einem
-    geschichteten Bootstrap (die Einstufung "schlecht" bleibt dabei fest)."""
+    Kept and discarded segments are drawn separately (500 vs. 150, each
+    stratum by duration), so the discarded ones are strongly over-represented.
+    Until 01.10.2026 the sample was evaluated unweighted - "finds 73 % of the
+    bad ones" and "13 % bad" held only for the sample (review).
+    Now every drawn segment stands for its share of the whole set
+    (stratum duration / number drawn): shares, hit rate and loss apply to
+    the hours of the whole set. 95 % intervals from a stratified bootstrap
+    (the "bad" classification stays fixed)."""
     rows = [dict(r) for r in rows]
     for r in rows:
         for k in ("cer", "score", "score_rel", "edge_min", "duration"):
@@ -135,7 +135,7 @@ def calibration(rows, n_boot=2000, seed=1):
     else:
         strata, source = current_strata(), "aktueller Stand"
     n = {k: int(np.sum(kind == k)) for k in ("keep", "drop")}
-    w = np.array([strata[k] / n[k] for k in kind])          # Sekunden Bestand je gezogenem Segment
+    w = np.array([strata[k] / n[k] for k in kind])          # seconds of the whole set per drawn segment
     bad = np.array(bad_flags(rows), float)
     rng = np.random.default_rng(seed)
     idx = [np.flatnonzero(kind == k) for k in ("keep", "drop")]
@@ -179,9 +179,9 @@ def calibrate(path):
 
 
 def compare_pairs(tsv, arch, device="mps"):
-    """Whisper-Vorpruefung der Nachpruefung: alter gegen neuen Schnitt derselben
-    Segmente (samples/nachpruefung.tsv). Misst, ob der neue Schnitt mehr vom
-    Soll-Text hoeren laesst - ersetzt nicht das Hoeren.
+    """Whisper pre-check for the re-check: old against new cut of the same
+    segments (samples/nachpruefung.tsv). Measures whether the new cut lets
+    more of the target text be heard - does not replace listening.
     -> work/eval/nachpruefung_whisper.csv"""
     import torch
     from transformers import WhisperProcessor, WhisperForConditionalGeneration
@@ -234,15 +234,15 @@ def main():
     segs = []
     for spec in load_specs():
         f = WORK / "segments" / f"{spec['id']}.json"
-        # ausgeschlossene Interviews gehoeren weder zu "behalten" noch zu
-        # "vom Filter verworfen"
+        # excluded interviews belong neither to "kept" nor to
+        # "discarded by the filter"
         if not f.exists() or spec.get("exclude"):
             continue
         for k, o in enumerate(json.loads(f.read_text())["segments"]):
             segs.append((spec["id"], spec["project"], k, o))
     kept = [x for x in segs if x[3]["keep"]]
     drop = [x for x in segs if not x[3]["keep"]]
-    # dauerproportional ziehen (lange Segmente zaehlen so viel wie ihre Dauer)
+    # draw in proportion to duration (long segments count as much as their duration)
     def draw(pool, n):
         w = [x[3]["duration"] for x in pool]
         idx = set()
@@ -250,7 +250,7 @@ def main():
             idx.add(rng.choices(range(len(pool)), weights=w)[0])
         return [pool[i] for i in sorted(idx)]
     sample = [("keep", x) for x in draw(kept, a.n)] + [("drop", x) for x in draw(drop, a.n_drop)]
-    # Schichtgroessen mitschreiben: die Kalibrierung rechnet damit auf den Bestand hoch
+    # record the stratum sizes: the calibration uses them to extrapolate to the whole set
     stratum = {"keep": (sum(x[3]["duration"] for x in kept), len(kept)),
                "drop": (sum(x[3]["duration"] for x in drop), len(drop))}
     shift_ids = set(rng.sample(range(a.n), min(a.shift, a.n)))

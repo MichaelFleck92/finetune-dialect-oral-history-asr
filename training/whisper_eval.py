@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-WER eines Whisper-Modells auf einem Teil des Datensatzes (Standard: test).
+WER of a Whisper model on one part of the dataset (default: test).
 
   python3 training/whisper_eval.py --model openai/whisper-tiny --name baseline-tiny
   python3 training/whisper_eval.py --model openai/whisper-tiny --adapter training/runs/tiny-lora --name tiny-lora
 
-Deutsch, ohne Zeitmarken, Standard greedy (--beams 5: Strahlsuche); auf einer
-Nvidia-GPU (cuda) in bf16, sonst in fp32. --fallback: Ausgaben, die sich
-wiederholen (gzip-Kompressionsrate > 2,4, wie in openai-whisper), werden mit
-Temperatur 0,2 ... 1,0 neu dekodiert; behalten wird die erste ohne Wiederholung,
-sonst die am wenigsten repetitive. --prompts: Whisper-Prompt je Projekt (Text vor dem
-Transkript); ohne --prompts dekodiert alles wie bisher. Referenz ist `text`. WER und CER ueber den
-ganzen Teil (Summe der Fehler / Summe der Referenzwoerter bzw. -zeichen), dazu
-je Projekt; beide Seiten normalisiert wie in whisper_common.words.
--> training/runs/<name>/eval_<split>[_<tag>].json und predictions_<split>[_<tag>].csv
+German, without timestamps, greedy by default (--beams 5: beam search); on an
+Nvidia GPU (cuda) in bf16, else in fp32. --fallback: outputs that repeat
+themselves (gzip compression ratio > 2.4, as in openai-whisper) are decoded
+again with temperature 0.2 ... 1.0; the first one without repetition is kept,
+else the least repetitive. --prompts: Whisper prompt per project (text before the
+transcript); without --prompts everything decodes as before. The reference is `text`. WER and CER over the
+whole part (sum of errors / sum of reference words or characters), plus
+per project; both sides normalised as in whisper_common.words.
+-> training/runs/<name>/eval_<split>[_<tag>].json and predictions_<split>[_<tag>].csv
 """
 import argparse, csv, json, os, sys, time, zlib
 from concurrent.futures import ThreadPoolExecutor
@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from whisper_common import RUNS, SR, default_device, split_rows, load_audio, words, load_model
 
 PROJECTS = {"rs": "Roter Stern", "re": "Rechnitz", "za": "Zwangsarbeiter"}
-CR_MAX = 2.4                                   # openai-whisper: darueber gilt eine Ausgabe als Schleife
+CR_MAX = 2.4                                   # openai-whisper: above this, an output counts as a loop
 FALLBACK_T = (0.2, 0.4, 0.6, 0.8, 1.0)
 
 
@@ -38,7 +38,7 @@ def compression_ratio(text):
 
 
 def score(pairs):
-    """[(Referenz, Hypothese)] -> WER, CER, Zahl der Referenzwoerter."""
+    """[(reference, hypothesis)] -> WER, CER, number of reference words."""
     we = wn = ce = cn = 0
     for ref, hyp in pairs:
         r, h = words(ref), words(hyp)
@@ -74,7 +74,7 @@ def main():
     bs = max(1, a.batch // a.beams)
     gen = dict(language="de", task="transcribe", max_new_tokens=200)
     prompts = json.loads(Path(a.prompts).read_text(encoding="utf-8")) if a.prompts else None
-    if prompts:                                          # je Projekt ein Prompt -> Stapel nur aus einem Projekt
+    if prompts:                                          # one prompt per project -> batches from one project only
         batches = []
         for p in sorted({r["project"] for r in rows}):
             idx = [j for j, r in enumerate(rows) if r["project"] == p]
@@ -83,7 +83,7 @@ def main():
     else:
         batches = [(list(range(i, min(i + bs, len(rows)))), None) for i in range(0, len(rows), bs)]
     hyps, done = [None] * len(rows), 0
-    with ThreadPoolExecutor(8) as pool:                  # ffmpeg-Dekodierung parallel
+    with ThreadPoolExecutor(8) as pool:                  # ffmpeg decoding in parallel
         for bi, (idx, pid) in enumerate(batches):
             batch = [rows[j] for j in idx]
             audio = list(pool.map(load_audio, batch))

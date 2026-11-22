@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 """
-Stufe 0b fuer das Projekt "Zwangsarbeiter": abfotografierte Transkriptseiten
-lesen und dabei die Sprecher auseinanderhalten.
+Stage 0b for the "Zwangsarbeiter" project: read photographed transcript pages
+and tell the speakers apart.
 
-Wer spricht, steht in diesen Transkripten nicht als Kuerzel da, sondern in der
-Schrift: die Fragen des Interviewers sind kursiv, die Antworten aufrecht.
+In these transcripts, who speaks is not given by a tag but by the typeface:
+the interviewer's questions are in italics, the answers upright.
 
-  Text     macOS Vision (pipeline/bin/vision_ocr), zeilenweise mit Kaestchen
-  Kursiv   Schraeglage je Zeile (line_slant): die Zeile wird schrittweise
-           geschert; beim richtigen Winkel stehen die Senkrechten untereinander
-           und die Spaltensumme bekommt scharfe Spitzen.
+  Text     macOS Vision (pipeline/bin/vision_ocr), line by line with boxes
+  Kursiv   slant per line (line_slant): the line is sheared step by step;
+           at the right angle the verticals line up and the column sum gets
+           sharp peaks.
 
-Gegenueber v1:
-  * Jede Seite wird zweimal gelesen, mit und ohne Sprachkorrektur. Woerter, an
-    denen sich beide Lesungen unterscheiden, gelten als unsicher und werden als
-    [ocr:...] markiert - der Parser laesst sie nicht ins Training.
-  * Zaehlerstaende der Mappen ("Chieskiu088", "(047)", "XXX084") werden als
-    [#...] abgetrennt, "XXX" (Platzhalter der Transkribierenden) als [unv].
-  * Die Kursiv-Pruefung ist nicht mehr der Wechsel der Turns (der ergibt sich
-    zwangslaeufig aus dem Zusammenfassen), sondern eine Sichtpruefung von
-    Zeilenausschnitten - siehe --crops.
+Compared with v1:
+  * Every page is read twice, with and without language correction. Words on
+    which the two readings differ count as uncertain and are marked as
+    [ocr:...] - the parser does not let them into training.
+  * Counter readings of the folders ("Wort088", "(047)", "XXX084") are
+    split off as [#...], "XXX" (the transcribers' placeholder) as [unv].
+  * The italics check is no longer the change of turns (which follows
+    inevitably from merging) but a visual check of line excerpts - see --crops.
 
   python3 pipeline/ocr_zwangsarbeiter.py [--only ID] [--crops N]
 """
@@ -34,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ROOT, WORK, load_specs, resolve
 
 VISION = Path(__file__).resolve().parent / "bin" / "vision_ocr"
-ITALIC_DEG = 5.0          # gemessen: aufrecht -6..+4 Grad, kursiv 9..17 (einmal 23)
+ITALIC_DEG = 5.0          # measured: upright -6..+4 degrees, italic 9..17 (once 23)
 OUT = WORK / "ocr"
 
 
@@ -77,8 +76,8 @@ def run_vision(path, correction=True):
 
 
 def orient(path, tmpdir):
-    """Die Fotos sind quer aufgenommen; die Drehung mit dem meisten erkannten
-    Text gewinnt."""
+    """The photos were taken in landscape; the rotation with the most recognised
+    text wins."""
     im = Image.open(path)
     best = None
     for rot, tf in ((270, Image.ROTATE_270), (90, Image.ROTATE_90),
@@ -104,8 +103,8 @@ def box_iou(a, b):
 
 
 def mark_uncertain(text_c, text_n):
-    """Woerter der korrigierten Lesung, die in der unkorrigierten anders lauten,
-    als [ocr:...] markieren (Satzzeichen-Unterschiede zaehlen nicht)."""
+    """Mark words of the corrected reading that differ in the uncorrected one
+    as [ocr:...] (punctuation differences do not count)."""
     a, b = text_c.split(), text_n.split()
     key = lambda w: re.sub(r"[^\wÄÖÜäöüß]", "", w).lower()
     sm = difflib.SequenceMatcher(a=[key(w) for w in a], b=[key(w) for w in b], autojunk=False)
@@ -120,15 +119,15 @@ def mark_uncertain(text_c, text_n):
 
 
 HEAD = re.compile(r"^\s*Interview mit .+geführt von", re.I)
-# Archivkopf, Stempel und Seitenfuss (kein gesprochener Text)
+# archive header, stamp and page footer (no spoken text)
 BOILER = re.compile(
     r"^\s*(COM\s+\d|AL\s+\d{4}-|OHA-WISOG|GESPERRT|Interviewer\s*:|Interviewte/?r?\s*:|"
     r"\d+\s*Band|Seite\s+\d+|\d{1,3}\s*$)", re.I)
-# Ein Transkript kennzeichnet Fragen zusaetzlich mit "I.:" (OCR: "1:" oder "l:")
+# One transcript additionally marks questions with "I.:" (OCR: "1:" or "l:")
 QPREFIX = re.compile(r"^\s*(?:I\.?|1|l)\s*[:.]\s*")
-# Zaehlerstaende der Mappen: drei Ziffern, direkt an ein Wort oder ein
-# Anfuehrungszeichen geklebt ("Chieskiu088", "Rohrzug200", „Lebring“207)
-# oder allein geklammert ("(047)", "(XXX007)"). Kein gesprochener Text.
+# counter readings of the folders: three digits, attached directly to a word or a
+# quotation mark ("Wort088", "Haus200", „Lager“207)
+# or bracketed on their own ("(047)", "(XXX007)"). No spoken text.
 GLUED = re.compile(r"(?<=[A-Za-zÄÖÜäöüß\"“”„)])(\d{3})(?![\d])")
 BRACKETED = re.compile(r"\(\s*(XXX)?\s*(\d{3})\s*\)")
 XXX_NUM = re.compile(r"\bXXX(\d{3})\b")
@@ -165,7 +164,7 @@ def read_page(path, tmpdir):
 
 
 def assign_style(lines):
-    """Kursiv ja/nein; nicht messbare Zeilen erben den Stil der Vorgaengerzeile."""
+    """Italic yes/no; lines that cannot be measured inherit the style of the previous line."""
     prev = False
     for l in lines:
         if l["angle"] is None:
@@ -176,9 +175,9 @@ def assign_style(lines):
 
 
 def dehyphenate(lines, vocab, justified):
-    """Trennstriche am Zeilenende zusammenziehen - im Blocksatz die
-    Regel, sonst nur wenn dabei ein bekanntes Wort entsteht; ein Bindestrich
-    am Zeilenende kann dort auch einen Wortabbruch im Sprechen bedeuten."""
+    """Join hyphens at line ends - the rule in justified text, otherwise only
+    if this produces a known word; a hyphen at the end of a line can also
+    mean a word broken off in speech."""
     out, i, joined = [], 0, 0
     while i < len(lines):
         cur = dict(lines[i])
@@ -237,8 +236,8 @@ def main():
     from sources import read_lines, build_vocab
     OUT.mkdir(parents=True, exist_ok=True)
     specs = [s for s in load_specs() if s["project"] == "za" and (not a.only or a.only in s["id"])]
-    # Wortschatz aus den sauberen docx-Transkripten (deterministisch, nicht
-    # aus einem frueheren Lauf wie in v1)
+    # vocabulary from the clean docx transcripts (deterministic, not
+    # from an earlier run as in v1)
     vocab = build_vocab(l for s in load_specs() if (s["transcript"] or "").endswith(".docx")
                         for l in read_lines(resolve(s["transcript"])))
     rng = np.random.default_rng(0)
@@ -248,8 +247,8 @@ def main():
         out_txt = OUT / f"{s['id']}.txt"
         if (out_txt.exists() and not a.force and not a.crops
                 and out_txt.stat().st_mtime > max(p.stat().st_mtime for p in pngs)):
-            continue                          # aktuell (Vision braucht ~3 min je Mappe);
-                                              # nach Aenderungen an der Leselogik: --force
+            continue                          # up to date (Vision needs ~3 min per folder);
+                                              # after changes to the reading logic: --force
         pages, audit, crops = [], [], []
         with tempfile.TemporaryDirectory() as td:
             for i, p in enumerate(pngs, 1):

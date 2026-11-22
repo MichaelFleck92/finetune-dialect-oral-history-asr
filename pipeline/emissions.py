@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Stufe 3a: wav2vec2-Emissionen je Interview berechnen und zwischenspeichern.
+Stage 3a: compute and cache wav2vec2 emissions per interview.
 
-Das ist der teure Schritt (CPU, ~15x Echtzeit). Alles Weitere - Stuetzpunkte,
-Forced Alignment, Pruefungen - arbeitet auf work/emissions/<id>.npy und kann
-deshalb beliebig oft neu laufen, ohne das Modell anzufassen.
+This is the expensive step (CPU, ~15x real time). Everything else - anchors,
+forced alignment, checks - works on work/emissions/<id>.npy and can therefore
+be rerun as often as needed without touching the model.
 
-MPS (Apple-GPU) liefert mit torch 2.3.1 fuer dieses Modell unbrauchbare
-Logits (Greedy-Ausgabe "eeeeee", am 26.09.2026 erneut geprueft) - daher CPU.
+MPS (Apple GPU) returns unusable logits for this model with torch 2.3.1
+(greedy output "eeeeee", checked again on 26.09.2026) - hence CPU.
 
   python3 pipeline/emissions.py [--only ID] [--force]
 """
@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import WORK, SR, load_specs, read_wav16, sha1_file, write_json
 
 MODEL_ID = "jonatasgrosman/wav2vec2-large-xlsr-53-german"
-FPS = 50.0                      # 320 Samples Hop = 20 ms
+FPS = 50.0                      # hop of 320 samples = 20 ms
 OUT = WORK / "emissions"
 
 
@@ -29,9 +29,9 @@ def load_model():
     from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
     proc = Wav2Vec2Processor.from_pretrained(MODEL_ID)
     model = Wav2Vec2ForCTC.from_pretrained(MODEL_ID).eval()
-    # Hinweis: transformers meldet pos_conv_embed als "newly initialized". Das
-    # ist falscher Alarm - torch biegt weight_g/weight_v beim Laden um; am
-    # 25.09.2026 gegen die Checkpoint-Tensoren geprueft (bitgleich).
+    # Note: transformers reports pos_conv_embed as "newly initialized". That
+    # is a false alarm - torch remaps weight_g/weight_v on loading; checked on
+    # 25.09.2026 against the checkpoint tensors (bit-identical).
     return proc, model
 
 
@@ -45,7 +45,7 @@ def model_revision():
 
 @torch.no_grad()
 def compute(audio, model, win_s=20.0, ctx_s=1.0):
-    """Log-Probs fuer die ganze Datei, fensterweise mit 1 s Kontext je Seite."""
+    """Log-probs for the whole file, window by window with 1 s of context on each side."""
     win, ctx = int(win_s * SR), int(ctx_s * SR)
     out, n = [], len(audio)
     for start in range(0, n, win):
@@ -63,7 +63,7 @@ def compute(audio, model, win_s=20.0, ctx_s=1.0):
 
 
 def probe(emis, proc):
-    """Stumme Fehler (falsches Device, kaputte Gewichte) abfangen."""
+    """Catch silent errors (wrong device, broken weights)."""
     mid = emis.shape[0] // 2
     ids = torch.from_numpy(emis[mid:mid + 750].argmax(-1)).unsqueeze(0)
     txt = proc.batch_decode(ids)[0]

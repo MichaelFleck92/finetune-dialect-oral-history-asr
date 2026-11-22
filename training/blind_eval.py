@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Schritt 2 auswerten: blinde Bewertungen gegen den Schlüssel.
+Evaluate step 2: blind ratings against the key.
 
   python3 training/blind_eval.py --schluessel training/blind/schluessel_<lauf>.json bewertung_X.csv bewertung_Y.csv
 
-Je Bewertung wird das Urteil (-2 = A deutlich besser ... +2 = B deutlich besser)
-so gedreht, dass positiv "feingetuntes Modell besser" heißt. Kontrollpaare (gleiche
-Ausgabe) zählen nur als Aufmerksamkeitsprüfung. Je Person und gemeinsam:
-Anteile besser/gleich/schlechter, mittlere Bewertung, Vorzeichentest (exakt,
-zweiseitig, ohne "gleich"), Bootstrap über die Interviews; Übereinstimmung der
-beiden Personen (Cohens Kappa auf besser/gleich/schlechter, gewichtetes Kappa auf
-der Fünferskala); Fehlerarten je Modell, falls die Seite sie abgefragt hat (seit
-06.10.2026 nicht mehr). Gesamtwerte ungewichtet (jedes Interview mit gleich vielen
-Paaren) und nach Interviewgröße gewichtet.
--> training/blind/ergebnis_<lauf>.json; ausgegeben werden nur Zahlen.
+For each rating, the verdict (-2 = A clearly better ... +2 = B clearly better)
+is turned so that positive means "fine-tuned model better". Control pairs (same
+output) count only as attention checks. Per person and combined:
+shares better/equal/worse, mean rating, sign test (exact, two-sided, without
+"equal"), bootstrap over the interviews; agreement between the two persons
+(Cohen's kappa on better/equal/worse, weighted kappa on the five-point
+scale); error types per model, if the page asked for them (no longer since
+06.10.2026). Totals unweighted (every interview with the same number of pairs)
+and weighted by interview size.
+-> training/blind/ergebnis_<lauf>.json; only figures are printed.
 """
 import argparse, csv, json, math
 from collections import Counter, defaultdict
@@ -30,7 +30,7 @@ def sign_test(pos, neg):
 
 
 def kappa(x, y, cats, weights=None):
-    """Cohens Kappa; weights=None ungewichtet, "linear" linear gewichtet."""
+    """Cohen's kappa; weights=None unweighted, "linear" linearly weighted."""
     idx = {c: i for i, c in enumerate(cats)}
     k = len(cats)
     obs = np.zeros((k, k))
@@ -83,9 +83,9 @@ def main():
             if it["kontrolle"]:
                 ctrl[r["bewerter"]].append(u)
                 continue
-            score = -u if it["A"] == ft else u          # > 0: feingetuntes Modell besser
+            score = -u if it["A"] == ft else u          # > 0: fine-tuned model better
             raters.setdefault(r["bewerter"], {})[r["item"]] = score
-            for side in ("A", "B"):                      # Fehlerarten nur, wenn die Seite sie abgefragt hat
+            for side in ("A", "B"):                      # error types only if the page asked for them
                 model = "feingetunt" if it[side] == ft else "ausgang"
                 for f in FLAGS:
                     if r.get(f"{side}_{f}") not in (None, ""):

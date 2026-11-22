@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Beispiel: den Datensatz fuer ein Whisper-Feintuning laden.
+Example: load the dataset for Whisper fine-tuning.
 
   pip install "datasets[audio]" transformers
   python3 pipeline/load_example.py
 
-Felder, die man beim Laden meist braucht:
-  text           Zieltext, einheitlich ueber alle Projekte (ohne Fuellwoerter
-                 und Zoegerungszeichen - so schreiben die Roter-Stern-Transkripte)
-  text_verbatim  wie im Transkript (Rechnitz enthaelt dort ahm/mhm und …)
-  split          train / dev / test - fest, nach Personengruppen
-  quality        hoch / mittel
-  role           zeitzeuge / interviewer / weitere
-  consent_anonymise  True / False / None (None = keine Angabe gefunden)
+Fields usually needed when loading:
+  text           target text, uniform across all projects (without fillers
+                 and hesitation marks - this is how the Roter Stern transcripts are written)
+  text_verbatim  as in the transcript (Rechnitz contains ahm/mhm and … there)
+  split          train / dev / test - fixed, by groups of persons
+  quality        hoch / mittel (high / medium)
+  role           zeitzeuge / interviewer / weitere (interviewee / interviewer / other)
+  consent_anonymise  True / False / None (None = no statement found)
 """
 from pathlib import Path
 import json
@@ -41,7 +41,7 @@ def load_plain(split=None, min_quality="mittel", role=None, drop_anonymise=False
 
 
 def load_hf(split="train", **kw):
-    """Mit der datasets-Bibliothek, 16 kHz, Spalten audio/text."""
+    """With the datasets library, 16 kHz, columns audio/text."""
     from datasets import Dataset, Audio
     rows = load_plain(split, **kw)
     ds = Dataset.from_list([{"audio": r["audio"], "text": r["target"], "role": r["role"],

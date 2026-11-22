@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-Wie gut erkennen zwei Läufe die Namen im Transkript? (Schritt 4)
+How well do two runs recognise the names in the transcript? (step 4)
 
   python3 training/entity_eval.py --a baseline-large-v3 --b large-v3-lora
-  python3 training/entity_eval.py --a ... --b ... --ungeprueft   # nur zum Testen
+  python3 training/entity_eval.py --a ... --b ... --ungeprueft   # for testing only
 
-Liest training/entities/<split>_spacy.jsonl (entities_tag.py) und die geprüfte
-Liste entitaeten_<split>_geprueft.csv (entities_review.py); gewertet werden nur
-Schreibungen mit "stimmt" oder geändertem Typ, im geprüften Typ. --ungeprueft
-nimmt alle spaCy-Vorschläge außer "?" (Ergebnis ist dann als ungeprüft markiert).
+Reads training/entities/<split>_spacy.jsonl (entities_tag.py) and the reviewed
+list entitaeten_<split>_geprueft.csv (entities_review.py); only spellings marked
+"correct" or with a changed type are scored, in the reviewed type. --ungeprueft
+takes all spaCy suggestions except "?" (the result is then marked as unreviewed).
 
-Je Nennung: die Wörter der Entität (normalisiert wie die WER) und ihre Zuordnung
-zur Ausgabe des Modells (Levenshtein-Ausrichtung des ganzen Segments).
-  erkannt  alle Wörter der Entität stehen genau so in der Ausgabe
-  nah      Zeichenähnlichkeit zur zugeordneten Ausgabe >= 0,8 (z. B. eine Endung falsch)
-Hauptergebnis sind Personen, Orte, Organisationen und Daten ("Namen und Daten");
-"Sonstiges" (Gruppen, Ereignisse, Adjektive, Dialekt- und Alltagswörter) steht
-getrennt. Dazu die Fehlerrate auf Namenswörtern gegen die auf allen übrigen Wörtern,
-der McNemar-Test (gepaart je Nennung) und ein Bootstrap über die Interviews.
--> training/entities/ergebnis_<split>[_<tag>]_<a>_vs_<b>.json (nur Zahlen) und
-   nennungen_<split>[_<tag>]_<a>_vs_<b>.csv (je Nennung, mit Text - bleibt lokal).
-   --tag beam5fb wertet die Ausgaben mit Strahlsuche + Rückfall (beide Läufe gleich);
-   <lauf>@<tag> wählt die Dekodierung je Lauf (z. B. baseline-large-v3@beam5fb-pnamen).
-Ausgegeben werden nur Zahlen.
+Per mention: the words of the entity (normalised like the WER) and their
+alignment to the model output (Levenshtein alignment of the whole segment).
+  erkannt  all words of the entity occur exactly like this in the output
+  nah      character similarity to the aligned output >= 0.8 (e.g. one ending wrong)
+The main result is persons, places, organisations and dates ("names and dates");
+"other" (groups, events, adjectives, dialect and everyday words) is reported
+separately. Plus the error rate on name words against that on all other words,
+the McNemar test (paired per mention) and a bootstrap over the interviews.
+-> training/entities/ergebnis_<split>[_<tag>]_<a>_vs_<b>.json (figures only) and
+   nennungen_<split>[_<tag>]_<a>_vs_<b>.csv (per mention, with text - stays local).
+   --tag beam5fb scores the outputs with beam search + fallback (same for both runs);
+   <lauf>@<tag> chooses the decoding per run (e.g. baseline-large-v3@beam5fb-pnamen).
+Only figures are printed.
 """
 import argparse, csv, json, math, re, sys
 from collections import defaultdict
@@ -42,7 +42,7 @@ CLOSE = 0.8
 
 
 def word_spans(text):
-    """Normalisierte Wörter wie whisper_common.words, je mit Zeichenbereich des Tokens."""
+    """Normalised words like whisper_common.words, each with the character range of its token."""
     out = []
     for m in re.finditer(r"\S+", text):
         for w in norm_word(m.group()).replace("'", "").split("|"):
@@ -52,7 +52,7 @@ def word_spans(text):
 
 
 def align(ref, hyp):
-    """Je Referenzwort: (Art, Bereich in hyp) aus den Levenshtein-Opcodes."""
+    """Per reference word: (kind, range in hyp) from the Levenshtein opcodes."""
     st = [None] * len(ref)
     for op in Levenshtein.opcodes(ref, hyp):
         for i in range(op.src_start, op.src_end):
@@ -61,7 +61,7 @@ def align(ref, hyp):
 
 
 def mcnemar(b, c):
-    """Exakter zweiseitiger McNemar-Test (Binomial, p = 0,5) für b gegen c."""
+    """Exact two-sided McNemar test (binomial, p = 0.5) for b against c."""
     n, k = b + c, min(b, c)
     if n == 0:
         return 1.0
@@ -93,7 +93,7 @@ def main():
                 if r["entscheidung"] in ("stimmt", "typ") and r["typ"] in TYPES:
                     keep[r["text"]] = r["typ"]
     sfx = f"_{a.tag}" if a.tag else ""
-    def pred_path(run):                                  # <lauf>@<tag> wählt die Dekodierung je Lauf
+    def pred_path(run):                                  # <lauf>@<tag> chooses the decoding per run
         if "@" in run:
             name, t = run.split("@", 1)
             return RUNS / name / f"predictions_{a.split}_{t}.csv"

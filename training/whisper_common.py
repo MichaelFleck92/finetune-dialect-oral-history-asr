@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Gemeinsames fuer Whisper-Auswertung und LoRA-Feintuning (training/).
+Shared code for Whisper evaluation and LoRA fine-tuning (training/).
 
-Gelesen wird nur der fertige Datensatz (dataset/metadata.jsonl und die FLACs),
-nicht work/ - fuer Training und Auswertung genuegt der Ordner dataset/.
-LoRA ist hier selbst geschrieben (eine Klasse, s.u.), damit kein weiteres Paket
-noetig ist; das Prinzip ist dasselbe wie bei peft.
+Only the finished dataset is read (dataset/metadata.jsonl and the FLACs),
+not work/ - the dataset/ folder is enough for training and evaluation.
+LoRA is self-written here (one class, see below), so that no further package
+is needed; the principle is the same as in peft.
 """
 import json, math, subprocess, sys
 from pathlib import Path
@@ -20,21 +20,21 @@ RUNS = ROOT / "training" / "runs"
 SR = 16000
 
 sys.path.insert(0, str(ROOT / "pipeline"))
-from align import norm_word        # dieselbe Normalisierung wie eval_segments.py
+from align import norm_word        # the same normalisation as eval_segments.py
 
-# Das Transkript schreibt keine Fuellwoerter (text), Whisper manchmal schon
+# the transcript writes no fillers (text), Whisper sometimes does
 FILLERS = {"äh", "ähm", "öhm", "ehm", "ahm", "hm", "hmm", "mhm", "mh", "äähm", "ähh", "hmhm"}
 
 
 def default_device():
-    """Nvidia-GPU (cuda), sonst Apple-GPU (mps), sonst cpu."""
+    """Nvidia GPU (cuda), else Apple GPU (mps), else cpu."""
     if torch.cuda.is_available():
         return "cuda"
     return "mps" if torch.backends.mps.is_available() else "cpu"
 
 
 def split_rows(split, limit=None, seed=0):
-    """Segmente eines Teils (train/dev/test), optional eine feste Zufallsauswahl."""
+    """Segments of one part (train/dev/test), optionally a fixed random selection."""
     rows = [json.loads(l) for l in (DATASET / "metadata.jsonl").read_text(encoding="utf-8").splitlines()]
     rows = [r for r in rows if r["split"] == split]
     if limit and limit < len(rows):
@@ -44,17 +44,17 @@ def split_rows(split, limit=None, seed=0):
 
 
 def load_audio(row):
-    """FLAC -> float32, 16 kHz mono (ffmpeg; torchaudio hat hier kein FLAC-Backend)."""
+    """FLAC -> float32, 16 kHz mono (ffmpeg; torchaudio has no FLAC backend here)."""
     raw = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(DATASET / row["file_name"]),
                           "-f", "s16le", "-ac", "1", "-ar", str(SR), "-"], capture_output=True, check=True).stdout
     return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
 
 
 def words(text):
-    """Woerter fuer die WER: wie align.norm_word (klein, ohne Satzzeichen, Zahlen
-    ausgeschrieben, ss statt ß, ohne Bindestrich), dazu ohne Apostroph und ohne
-    Fuellwoerter. So zaehlt "1945" gegen "neunzehnhundertfünfundvierzig" nicht
-    als Fehler - das Transkript schreibt Zahlen mal so, mal so."""
+    """Words for the WER: as align.norm_word (lower case, no punctuation, numbers
+    spelled out, ss instead of ß, no hyphen), plus without apostrophes and
+    without fillers. So "1945" against "neunzehnhundertfünfundvierzig" does not
+    count as an error - the transcript writes numbers sometimes one way, sometimes the other."""
     out = []
     for tok in text.split():
         for w in norm_word(tok).replace("'", "").split("|"):
@@ -64,9 +64,9 @@ def words(text):
 
 
 class LoRALinear(nn.Module):
-    """y = W x + (alpha / r) * B(A(x)). W bleibt eingefroren, gelernt werden nur
-    A (r x in) und B (out x r). B startet bei null: vor dem Training rechnet das
-    Modell exakt wie das Ausgangsmodell."""
+    """y = W x + (alpha / r) * B(A(x)). W stays frozen, only A (r x in) and
+    B (out x r) are learned. B starts at zero: before training the model
+    computes exactly like the base model."""
 
     def __init__(self, base, r, alpha, dropout):
         super().__init__()
@@ -83,9 +83,9 @@ class LoRALinear(nn.Module):
 
 
 def add_lora(model, targets, r, alpha, dropout, scope="all"):
-    """Alle Gewichte einfrieren und die genannten Linear-Schichten durch
-    LoRALinear ersetzen - in Encoder und Decoder (scope "all") oder nur in einem
-    von beiden ("encoder", "decoder"). -> Zahl der ersetzten Schichten."""
+    """Freeze all weights and replace the named linear layers with
+    LoRALinear - in the encoder and decoder (scope "all") or only in one of
+    them ("encoder", "decoder"). -> number of replaced layers."""
     for p in model.parameters():
         p.requires_grad_(False)
     root = {"all": model, "encoder": model.model.encoder, "decoder": model.model.decoder}[scope]
@@ -104,9 +104,9 @@ def lora_state(model):
 
 @torch.no_grad()
 def merge_lora(model):
-    """LoRA in die Basisgewichte einrechnen (W + scale * B A) und die Schichten
-    wieder zu nn.Linear machen. Fuer die Auswertung in bf16: so wird das
-    Ergebnis einmal gerundet statt Basis- und LoRA-Pfad getrennt."""
+    """Merge LoRA into the base weights (W + scale * B A) and turn the layers
+    back into nn.Linear. For evaluation in bf16: this way the result is
+    rounded once instead of the base and LoRA paths separately."""
     for mod in list(model.modules()):
         for name, sub in list(mod.named_children()):
             if isinstance(sub, LoRALinear):
@@ -115,8 +115,8 @@ def merge_lora(model):
 
 
 def load_model(base, adapter=None, device="cpu", dtype=None):
-    """Whisper-Modell (+ Prozessor), optional mit einem trainierten LoRA-Adapter.
-    dtype (z. B. torch.bfloat16 auf cuda): Adapter in fp32 einrechnen, dann umwandeln."""
+    """Whisper model (+ processor), optionally with a trained LoRA adapter.
+    dtype (e.g. torch.bfloat16 on cuda): merge the adapter in fp32, then convert."""
     from transformers import WhisperForConditionalGeneration, WhisperProcessor
     proc = WhisperProcessor.from_pretrained(base)
     model = WhisperForConditionalGeneration.from_pretrained(base)

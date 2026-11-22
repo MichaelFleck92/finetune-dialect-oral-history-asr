@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Hörseite: Audio, Transkript und die Ausgaben zweier Läufe nebeneinander.
+Listening page: audio, transcript and the outputs of two runs side by side.
 
   python3 training/compare_page.py --a baseline-large-v3 --b large-v3-lora
 
-Liest training/runs/<a|b>/predictions_test.csv und eval_test.json sowie
-dataset/metadata.jsonl. Enthält alle Segmente des Test-Teils; voreingestellt ist
-eine feste Zufallsauswahl von --per-interview Segmenten je Interview. Markiert
-wird, was die WER zählt: auf den normalisierten Wörtern (whisper_common.words)
-falsch, zusätzlich oder fehlend – Groß-/Kleinschreibung und Satzzeichen nicht.
-Das Audio wird aus ../dataset/audio geladen: die Seite über den lokalen Server
-öffnen (launch.json "hoerprobe"), nicht als Datei.
+Reads training/runs/<a|b>/predictions_test.csv and eval_test.json as well as
+dataset/metadata.jsonl. Contains all segments of the test part; the default is
+a fixed random selection of --per-interview segments per interview. What the
+WER counts is marked: on the normalised words (whisper_common.words)
+wrong, inserted or missing – not case and punctuation.
+The audio is loaded from ../dataset/audio: open the page through the local
+server (launch.json "hoerprobe"), not as a file.
 -> samples/vergleich_<b>.html
 """
 import argparse, csv, json, sys
@@ -25,7 +25,7 @@ from whisper_common import ROOT, DATASET, RUNS, words
 
 
 def token_words(text):
-    """Tokens des Texts, ihre normalisierten Wörter und je Wort das Token."""
+    """Tokens of the text, their normalised words and the token of each word."""
     toks = text.split()
     seq, owner = [], []
     for k, t in enumerate(toks):
@@ -36,9 +36,9 @@ def token_words(text):
 
 
 def diff(ref, hyp):
-    """Hypothese als [Text, Art, Titel]-Stücke: Art "" richtig, "s" falsch
-    (Titel = Transkript), "i" zusätzlich, "d" fehlt (Text aus dem Transkript),
-    "f" Füllwort (zählt nicht). Dazu Fehlerzahl und Referenzwörter."""
+    """Hypothesis as [text, kind, title] pieces: kind "" correct, "s" wrong
+    (title = transcript), "i" inserted, "d" missing (text from the transcript),
+    "f" filler (does not count). Plus the error count and reference words."""
     rt, rw, ro = token_words(ref)
     ht, hw, ho = token_words(hyp)
     kind, title, before = [""] * len(ht), {}, defaultdict(list)

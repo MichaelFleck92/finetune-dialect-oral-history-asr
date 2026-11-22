@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Ganze Interviews transkribieren: die Stücke aus longform_chunks.py (an Pausen
-geschnitten, für alle Modelle gleich) mit derselben Dekodierung wie
-whisper_eval.py (Deutsch, ohne Zeitmarken, --beams, --fallback, --prompts).
+Transcribe complete interviews: the chunks from longform_chunks.py (cut at pauses,
+the same for all models) with the same decoding as whisper_eval.py
+(German, without timestamps, --beams, --fallback, --prompts).
 
   python3 training/longform_eval.py --model openai/whisper-large-v3 --name baseline-large-v3 --beams 5 --fallback --tag beam5fb
   python3 training/longform_eval.py --model openai/whisper-large-v3 --adapter training/runs/<lauf> --name <lauf> --beams 5 --fallback --tag beam5fb
 
-Whispers eigener Langform-Modus braucht Zeitmarken; das feingetunte Modell ist
-ohne Zeitmarken trainiert - darum hier feste Stücke statt Zeitmarken-Sprüngen.
-Audio: ganze Aufnahme je Interview als <interview>.wav oder .flac (16 kHz mono) in --audio-dir,
-Standard work/audio16k (Stufe 2). Auf dem Mac: --dtype fp16.
+Whisper's own long-form mode needs timestamps; the fine-tuned model was trained
+without timestamps - hence fixed chunks here instead of timestamp jumps.
+Audio: complete recording per interview as <interview>.wav or .flac (16 kHz mono) in --audio-dir,
+default work/audio16k (stage 2). On the Mac: --dtype fp16.
 -> training/runs/<name>/longform[_<tag>]/<interview>.json ({"chunks": [[s, e, text], ...]}).
-Auswertung mit longform_score.py. Ausgegeben werden nur Zahlen.
+Scoring with longform_score.py. Only figures are printed.
 """
 import argparse, json, os, subprocess, sys, time
 from pathlib import Path
@@ -35,7 +35,7 @@ def load_file(path):
 
 
 def interview_audio(iv, audio_dir=None):
-    """Ganze Aufnahme eines Interviews: <audio_dir>/<iv>.wav oder .flac (Standard work/audio16k)."""
+    """Complete recording of an interview: <audio_dir>/<iv>.wav or .flac (default work/audio16k)."""
     d = Path(audio_dir) if audio_dir else ROOT / "work" / "audio16k"
     for ext in (".wav", ".flac"):
         if (d / f"{iv}{ext}").exists():

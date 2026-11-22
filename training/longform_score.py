@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Ganze Interviews auswerten: Ausgabe je Stück gegen die Transkriptwörter,
-deren Zeit (Alignment, work/aligned) in das Stück fällt.
+Score complete interviews: output per chunk against the transcript words
+whose time (alignment, work/aligned) falls into the chunk.
 
   python3 training/longform_score.py baseline-large-v3:beam5fb l3-r16-lr5e-4-e3/ep3:beam5fb ...
 
-Läufe als <lauf>:<tag> (Ordner training/runs/<lauf>/longform_<tag>/). Der erste
-Lauf ist die Bezugsgröße für Unterschiede und Bootstrap.
-  alle     WER über alle Stücke mit Transkriptwörtern; Sprache, die das Transkript
-           auslässt (Joker im Alignment), zählt hier als Fehler - also streng.
-  sauber   nur Stücke ohne ausgelassene Sprache (kein Joker überlappt das Stück
-           um mehr als 0,3 s) - der faire Vergleich.
-  ohne Transkript: Wörter, die ein Modell in Stücke ganz ohne Transkriptwörter
-           schreibt (nicht transkribierte Sprache oder erfundener Text).
-Bootstrap über die Interviews (95 %) für den Unterschied zum ersten Lauf.
--> training/longform/ergebnis.json. Ausgegeben werden nur Zahlen.
+Runs as <lauf>:<tag> (folder training/runs/<lauf>/longform_<tag>/). The first
+run is the reference for differences and bootstrap.
+  alle     WER over all chunks with transcript words; speech that the transcript
+           omits (wildcard in the alignment) counts as an error here - so strict.
+  sauber   only chunks without omitted speech (no wildcard overlaps the chunk
+           by more than 0.3 s) - the fair comparison.
+  ohne Transkript: words a model writes into chunks without any transcript words
+           (untranscribed speech or invented text).
+Bootstrap over the interviews (95 %) for the difference to the first run.
+-> training/longform/ergebnis.json. Only figures are printed.
 """
 import json, sys
 from collections import defaultdict
@@ -31,11 +31,11 @@ PROJ = {"rs": "Roter Stern", "re": "Rechnitz", "za": "Zwangsarbeiter"}
 
 
 def reference(iv, audio_s):
-    """Transkriptwörter mit Zeitpunkt (Mitte) und die Zeitspannen ausgelassener Sprache."""
+    """Transcript words with time (midpoint) and the time spans of omitted speech."""
     a = json.loads((ROOT / "work" / "aligned" / f"{iv}.json").read_text(encoding="utf-8"))
     ws = a["words"]
     t, last = [], 0.0
-    for w in ws:                                        # nicht alignierte Wörter: Zeit des Vorgängers
+    for w in ws:                                        # unaligned words: time of the preceding word
         if w.get("s") is not None and w.get("e") is not None:
             last = (w["s"] + w["e"]) / 2
         t.append(last)
@@ -53,7 +53,7 @@ def score_run(run):
     per = {}
     for f in sorted((LF / "chunks").glob("*.json")):
         iv = f.stem
-        if not (d / f"{iv}.json").exists():           # Lauf (noch) ohne dieses Interview
+        if not (d / f"{iv}.json").exists():           # run without this interview (yet)
             continue
         meta = json.loads(f.read_text(encoding="utf-8"))
         out = json.loads((d / f"{iv}.json").read_text(encoding="utf-8"))["chunks"]

@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 """
-Stufe 3b: Forced Alignment ohne handgesetzte Zeitmarken.
+Stage 3b: forced alignment without hand-set time marks.
 
-v1 benutzte die Zeitmarken der Transkripte als feste Stuetzpunkte. Die Marken
-hinken aber ~1,9 s nach (gemessen an einem Interview mit Handmarken) - als harte Grenze
-verschoben sie den Beginn jedes folgenden Turns um im Median 1,65 s. Deshalb:
+v1 used the transcripts' time marks as fixed anchors. But the marks lag by
+~1.9 s (measured on one interview with hand-set marks) - as hard boundaries
+they shifted the start of every following turn by a median of 1.65 s. Hence:
 
-  * Stuetzpunkte kommen nur aus dem Audio selbst: Greedy-Dekodierung der
-    wav2vec2-Emissionen, eindeutige Wort-Trigramme, die im Transkript genauso
-    vorkommen, in zeitlich monotoner Folge (laengste steigende Teilfolge).
-    Die Blockgrenze liegt zwischen zwei Woertern, die der Erkenner exakt so
-    gehoert hat.
-  * In grossen Luecken wird lokal weitergesucht (auch Bigramme). Findet sich
-    nichts, wird der Block nicht "in der Mitte geteilt" (v1), sondern bleibt
-    unaligniert, wenn er fuer einen Durchgang zu gross ist.
-  * Ein Joker-Token (<star>, wie beim MMS-Aligner) steht an [unv]/[gap] und am
-    Anfang/Ende der Aufnahme: dort liegt Sprache ohne Text, die sonst die
-    Nachbarwoerter verschleppt.
-  * Text ohne Ton (ein Interview: Luecke im Tonmitschnitt) faellt als
-    unmoegliche Sprechrate zwischen zwei Stuetzpunkten auf und wird nicht
-    aligniert statt in wenige Sekunden gequetscht.
-  * Zwei Woerter, die im Transkript nur durch ein Zoegerungszeichen verbunden
-    sind ("Jahren…seit", 434 Mal, v.a. Rechnitz), werden getrennt aligniert;
-    als ein Wort bekamen sie eine gedehnte Zeitspanne und verzerrten die
-    Schnittkanten (Hoerprobe 28.09.2026).
+  * Anchors come only from the audio itself: greedy decoding of the
+    wav2vec2 emissions, unique word trigrams that occur identically in the
+    transcript, in temporally monotonic order (longest increasing subsequence).
+    The block boundary lies between two words the recogniser heard exactly
+    like this.
+  * Large gaps are searched again locally (bigrams too). If nothing is found,
+    the block is not "split in the middle" (v1) but stays unaligned if it is
+    too large for one pass.
+  * A wildcard token (<star>, as in the MMS aligner) stands at [unv]/[gap] and
+    at the start/end of the recording: there is speech without text there,
+    which would otherwise drag the neighbouring words along.
+  * Text without audio (one interview: a gap in the recording) shows up as an
+    impossible speech rate between two anchors and is left unaligned instead
+    of being squeezed into a few seconds.
+  * Two words joined in the transcript only by a hesitation mark
+    ("Jahren…seit", 434 times, mostly Rechnitz) are aligned separately; as one
+    word they received a stretched time span and distorted the segment edges
+    (listening check 28.09.2026).
 
-Die handgesetzten Zeitmarken werden nur mitgeschrieben - fuer die
-unabhaengige Genauigkeitsmessung (pipeline/eval_markers.py).
+The hand-set time marks are only recorded - for the independent accuracy
+measurement (pipeline/eval_markers.py).
 
   python3 pipeline/align.py [--only ID] [--force] [--turn-stars]
 """
@@ -42,13 +42,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import WORK, load_specs, write_json, sha1_file, code_hash
 
 FPS = 50.0
-CELL_BUDGET = 1.2e9          # Frames x Token je Block (forced_align, CPU)
-MAX_BLOCK_S = 900            # groessere Bloecke werden lokal weiter unterteilt
-MIN_ANCHOR_GAP_S = 20.0      # Mindestabstand der Stuetzpunkte
-MAX_WPS = 5.0                # hoechstens 300 Woerter/min zwischen zwei Stuetzpunkten
+CELL_BUDGET = 1.2e9          # frames x tokens per block (forced_align, CPU)
+MAX_BLOCK_S = 900            # larger blocks are subdivided further locally
+MIN_ANCHOR_GAP_S = 20.0      # minimum distance between anchors
+MAX_WPS = 5.0                # at most 300 words/min between two anchors
 OUT = WORK / "aligned"
 
-# ------------------------------------------------------------ Normalisierung
+# ------------------------------------------------------------ normalisation
 
 ABBR = {"z.b.": "zum beispiel", "usw.": "und so weiter", "bzw.": "beziehungsweise",
         "d.h.": "das heisst", "dr.": "doktor", "prof.": "professor", "hr.": "herr",
@@ -63,17 +63,17 @@ def spell_number(tok, ordinal=False, year=True):
     n = int(tok)
     if ordinal and n < 100:
         return num2words(n, lang="de", to="ordinal")
-    if year and 1100 <= n <= 1999:              # Jahreszahl: neunzehnhundert...
+    if year and 1100 <= n <= 1999:              # year: neunzehnhundert...
         h, r = divmod(n, 100)
         return num2words(h, lang="de") + "hundert" + (num2words(r, lang="de") if r else "")
     return num2words(n, lang="de")
 
 
-# Tausenderpunkt, Dezimalkomma und Prozent so, wie es gesprochen wird. Bis
-# 01.10.2026 wurde jede Ziffernfolge einzeln ausgeschrieben ("20.000" ->
-# zwanzignull, "95%" ohne prozent, "100%ig" -> einhundertig; Review). Die
-# Lesarten sind an der Greedy-Dekodierung aller 45 betroffenen Token geprueft:
-# "10.000" zehntausend, "100.000" hunderttausend (ohne "ein"), "80%" achtzig
+# Thousands separator, decimal comma and per cent as spoken. Until
+# 01.10.2026 every digit sequence was spelled out on its own ("20.000" ->
+# zwanzignull, "95%" without prozent, "100%ig" -> einhundertig; review). The
+# readings were checked against the greedy decoding of all 45 affected tokens:
+# "10.000" zehntausend, "100.000" hunderttausend (without "ein"), "80%" achtzig
 # prozent, "100%ig" hundertprozentig, "2,7%" zwei komma sieben prozent,
 # "5,5 Jahre" fuenfeinhalb, "8,8" (Flak) acht acht, "1,90" eins neunzig.
 PERCENT = re.compile(r"(\d+)(?:,(\d+))?%(?:-?(ig\w*))?")
@@ -82,13 +82,13 @@ DECIMAL = re.compile(r"(\d+),(\d+)")
 
 
 def _amount(digits):
-    """Menge, keine Jahreszahl; "einhundert"/"eintausend" am Anfang ohne "ein"."""
+    """Quantity, not a year; "einhundert"/"eintausend" at the start without "ein"."""
     s = spell_number(digits, year=False).replace(" ", "|")
     return re.sub(r"^ein(?=hundert|tausend)", "", s)
 
 
 def _decimal(a, b, komma=False):
-    if komma:                                   # "komma" nur bei Prozent gehoert
+    if komma:                                   # "komma" heard only with per cent
         return _amount(a) + "|komma|" + _amount(b)
     if b == "5":                                # 5,5 -> fuenfeinhalb, 1,5 -> eineinhalb
         return {"0": "", "1": "ein"}.get(a, _amount(a)) + "einhalb"
@@ -101,8 +101,8 @@ def _percent(m):
 
 
 def norm_word(w):
-    """Originalwort -> Schreibung im Modellvokabular ('' = nicht alignierbar).
-    '|' trennt Woerter innerhalb eines Tokens ("zum|beispiel", "acht|acht")."""
+    """Original word -> spelling in the model vocabulary ('' = cannot be aligned).
+    '|' separates words within one token ("zum|beispiel", "acht|acht")."""
     lw = w.lower().strip("„“”\"»«()…,;:!?")
     if lw in ABBR:
         return ABBR[lw].replace(" ", "|")
@@ -112,9 +112,9 @@ def norm_word(w):
     lw = THOUSANDS.sub(lambda m: _amount(m.group().replace(".", "")), lw)
     lw = DECIMAL.sub(lambda m: _decimal(m.group(1), m.group(2)), lw)
     lw = re.sub(r"\d+", lambda m: spell_number(m.group()), lw)
-    # erst nach dem Ausschreiben: "dreißig" (30-39, 1930-1939) behielt sonst kein ss
+    # only after spelling out: "dreißig" (30-39, 1930-1939) would otherwise lose its ss
     lw = lw.replace("ß", "ss").replace("’", "'").replace("‘", "'").replace("´", "'")
-    lw = lw.replace("-", "")                     # Nazi-Deutschland -> ein Wort
+    lw = lw.replace("-", "")                     # Nazi-Deutschland -> one word
     import unicodedata
     out = []
     for ch in lw:
@@ -126,22 +126,22 @@ def norm_word(w):
                 out.append(base)
     return re.sub(r"\|+", "|", "".join(out)).strip("|'")
 
-# ------------------------------------------------------------ Woerter
+# ------------------------------------------------------------ words
 
 def split_joined(tok):
-    """'Jahren…seit' -> ['Jahren…', 'seit']: Zoegerungszeichen zwischen zwei Woertern."""
+    """'Jahren…seit' -> ['Jahren…', 'seit']: hesitation mark between two words."""
     return re.sub(r"(\w)(…|\.\.\.)(?=\w)", r"\1\2 ", tok).split()
 
 
 def build_words(turns, turn_stars=False):
-    """-> words [{orig, norm, turn, speaker}], stars {vor Wortindex}, marks, handmarken"""
+    """-> words [{orig, norm, turn, speaker}], stars {before word index}, marks, hand-set marks"""
     words, stars, marks, hand = [], set(), [], []
     stars.add(0)
     for t in turns:
         if turn_stars and words:
             stars.add(len(words))
         toks = t["text"].split()
-        # Wortindex je Token fuer die Zeitmarken (die im Turn als Wortposition stehen)
+        # word index per token for the time marks (stored in the turn as word positions)
         tok_word = []
         for tok in toks:
             m = re.fullmatch(r"\[(unv|gap|nv)\][,.;:!?…]*", tok)
@@ -152,22 +152,22 @@ def build_words(turns, turn_stars=False):
                     stars.add(len(words))
                 tok_word.append(None)
                 continue
-            last = None                           # Zeitmarken zaehlen Transkript-Token:
-            for part in split_joined(tok):        # letztes Wort des Tokens
+            last = None                           # time marks count transcript tokens:
+            for part in split_joined(tok):        # last word of the token
                 nw = norm_word(part)
                 if not nw:
-                    if words:                     # Satzzeichen an das Vorgaengerwort haengen
+                    if words:                     # attach punctuation to the preceding word
                         words[-1]["orig"] += " " + part
                     continue
                 last = len(words)
                 words.append({"orig": part, "norm": nw, "turn": t["idx"], "speaker": t["speaker"]})
             tok_word.append(last)
-        # Zeitmarken: 'word' zaehlt die Woerter des bereinigten Turntexts ohne Markierungen
+        # time marks: 'word' counts the words of the cleaned turn text without markup
         plain_idx = [k for k, tok in enumerate(toks) if not re.fullmatch(r"\[(unv|gap|nv)\][,.;:!?…]*", tok)]
         for ts in t.get("timestamps", []):
             if ts.get("t") is None:
                 continue
-            k = ts["word"]                        # Anzahl Woerter davor im Turn
+            k = ts["word"]                        # number of words before it in the turn
             wi = None
             for j in range(min(k, len(plain_idx)) - 1, -1, -1):
                 wi = tok_word[plain_idx[j]]
@@ -178,7 +178,7 @@ def build_words(turns, turn_stars=False):
     stars.add(len(words))
     return words, stars, marks, hand
 
-# ------------------------------------------------------------ ASR-Stuetzpunkte
+# ------------------------------------------------------------ ASR anchors
 
 def greedy_words(emis, inv_vocab, blank=0):
     ids = emis.argmax(-1)
@@ -203,7 +203,7 @@ def greedy_words(emis, inv_vocab, blank=0):
 
 
 def _lis(cands):
-    """laengste streng steigende Teilfolge nach (ref, frame)."""
+    """Longest strictly increasing subsequence by (ref, frame)."""
     cands.sort()
     tails, idx, back = [], [], []
     for k, (ri, fr, _) in enumerate(cands):
@@ -222,8 +222,8 @@ def _lis(cands):
 
 
 def find_anchors(ref, asr, r0, r1, a0, a1, n):
-    """Eindeutige n-Gramme in ref[r0:r1] und asr[a0:a1] -> [(ref_idx, frame, asr_idx)]
-    Stuetzpunkt = Grenze zwischen 1. und 2. Wort des n-Gramms."""
+    """Unique n-grams in ref[r0:r1] and asr[a0:a1] -> [(ref_idx, frame, asr_idx)]
+    Anchor = boundary between the 1st and 2nd word of the n-gram."""
     def grams(seq, lo, hi):
         d = {}
         for i in range(lo, hi - n + 1):
@@ -239,10 +239,10 @@ def find_anchors(ref, asr, r0, r1, a0, a1, n):
         aj = ag.get(g)
         if not aj or len(aj) != 1:
             continue
-        if sum(len(x) for x in g) < 9:            # zu kurz: "und da ist" ist wertlos
+        if sum(len(x) for x in g) < 9:            # too short: "und da ist" is worthless
             continue
         i, j = ri[0], aj[0]
-        fr = (asr[j][2] + asr[j + 1][1]) // 2     # zwischen Wort 1 und 2
+        fr = (asr[j][2] + asr[j + 1][1]) // 2     # between word 1 and 2
         cands.append((i + 1, fr, j + 1))
     return _lis(cands)
 
@@ -250,7 +250,7 @@ def find_anchors(ref, asr, r0, r1, a0, a1, n):
 def anchor_blocks(words, asr, T, stats):
     ref = [w["norm"] for w in words]
     pts = [(0, 0, 0)] + find_anchors(ref, asr, 0, len(ref), 0, len(asr), 3) + [(len(ref), T, len(asr))]
-    # rekursiv verfeinern: grosse Luecken lokal nach Tri-/Bigrammen durchsuchen
+    # refine recursively: search large gaps locally for trigrams/bigrams
     for n in (3, 2):
         out = [pts[0]]
         for (r0, f0, a0), (r1, f1, a1) in zip(pts, pts[1:]):
@@ -260,14 +260,14 @@ def anchor_blocks(words, asr, T, stats):
                 out.extend(inner)
             out.append((r1, f1, a1))
         pts = out
-    # ausduennen und Plausibilitaet: Sprechrate zwischen zwei Stuetzpunkten
+    # thin out and check plausibility: speech rate between two anchors
     kept = [pts[0]]
     for p in pts[1:-1]:
         if (p[1] - kept[-1][1]) / FPS >= MIN_ANCHOR_GAP_S:
             kept.append(p)
     kept.append(pts[-1])
-    # einzelne Ausreisser (Trigramm an falscher Stelle) entfernen: ein Punkt,
-    # der zu beiden Nachbarn eine unmoegliche Rate ergibt, faellt heraus
+    # remove single outliers (trigram in the wrong place): a point that
+    # gives an impossible rate to both neighbours is dropped
     changed = True
     while changed and len(kept) > 2:
         changed = False
@@ -289,12 +289,12 @@ def anchor_blocks(words, asr, T, stats):
     stats["stuetzpunkte"] += len(kept) - 2
     return blocks
 
-# ------------------------------------------------------------ Alignment
+# ------------------------------------------------------------ alignment
 
 def align_block(emis_star, words, w0, w1, f0, f1, stars, vocab, star_id):
-    """Woerter [w0, w1) auf Frames [f0, f1) -> [(wi, s_frame, e_frame_exkl, score)] oder None.
-    stars: Wortindizes, vor denen ein Joker steht (0 = Aufnahmebeginn,
-    len(words) = Aufnahmeende)."""
+    """Words [w0, w1) onto frames [f0, f1) -> [(wi, s_frame, e_frame_excl, score)] or None.
+    stars: word indices preceded by a wildcard (0 = start of recording,
+    len(words) = end of recording)."""
     toks, owner = [], []
     if w0 in stars:
         toks.append(star_id); owner.append(-2)
@@ -356,9 +356,9 @@ def run(spec, turn_stars=False):
         n_tok = sum(len(words[i]["norm"]) + 1 for i in range(b["w0"], b["w1"]))
         cells = (b["f1"] - b["f0"]) * n_tok
         if not b["ok"]:
-            # Irgendwo in diesem Block steht Text ohne Ton. Mit lokalen
-            # Bigramm-Stuetzpunkten den alignierbaren Teil herauslösen; was
-            # danach noch zu schnell ist, bleibt unaligniert.
+            # Somewhere in this block there is text without audio. Use local
+            # bigram anchors to extract the alignable part; whatever is
+            # still too fast afterwards stays unaligned.
             ref = [w["norm"] for w in words]
             fr = [x[1] for x in asr]
             a0, a1 = bisect.bisect_left(fr, b["f0"]), bisect.bisect_right(fr, b["f1"])
@@ -375,7 +375,7 @@ def run(spec, turn_stars=False):
             b["status"] = "text_ohne_ton"; stats["woerter_text_ohne_ton"] += b["w1"] - b["w0"]
             done_blocks.append(b); continue
         if cells > CELL_BUDGET:
-            # lokal nach Bigrammen mit engerem Abstand suchen
+            # search locally for bigrams with a smaller distance
             ref = [w["norm"] for w in words]
             a0 = bisect.bisect_left([a[1] for a in asr], b["f0"])
             a1 = bisect.bisect_right([a[1] for a in asr], b["f1"])
@@ -435,12 +435,12 @@ def main():
         tgt = out_dir / f"{iid}.json"
         if tgt.exists() and not a.force:
             old = json.loads(tgt.read_text())
-            # emissions_sha1 = Hash des 16-kHz-Audios, aus dem die Emissionen stammen
+            # emissions_sha1 = hash of the 16 kHz audio the emissions come from
             em_audio = json.loads((WORK / "emissions" / f"{iid}.json").read_text())["audio_sha1"]
             if old.get("turns_sha1") == sha1_file(WORK / "turns" / f"{iid}.json") \
                     and old.get("emissions_sha1") == em_audio \
                     and old.get("code") == code_hash("align.py"):
-                continue                              # aktuell
+                continue                              # up to date
         t0 = time.time()
         r = run(s, a.turn_stars)
         write_json(tgt, r)

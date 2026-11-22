@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Wahl auf dev (18.11.2026): unter allen Epochen-Ständen der Läufe, deren Name mit dem Präfix beginnt,
-der Stand mit der niedrigsten dev-WER (Segmente, greedy). Bei Gleichstand (auf 0,01 Prozentpunkte)
-gilt der Stand mit weniger Epochen, dann die kleinere Lernrate. Die Regel steht vor den Ergebnissen fest;
-test wird nur für den gewählten Stand ausgewertet (jobs/test_best.sh).
+Selection on dev (18.11.2026): among all epoch checkpoints of the runs whose name starts with the prefix,
+the checkpoint with the lowest dev WER (segments, greedy). On a tie (to 0.01 percentage points)
+the checkpoint with fewer epochs wins, then the smaller learning rate. The rule is fixed before the results;
+test is evaluated only for the chosen checkpoint (jobs/test_best.sh).
 
-  python3 training/select_dev.py pk-r16-lr w-r16-lr        # Tabelle je Präfix, -> training/runs/auswahl_dev.json
-  python3 training/select_dev.py --nur pk-r16-lr           # nur den gewählten Stand (für Skripte)
+  python3 training/select_dev.py pk-r16-lr w-r16-lr        # table per prefix, -> training/runs/auswahl_dev.json
+  python3 training/select_dev.py --nur pk-r16-lr           # only the chosen checkpoint (for scripts)
 
-Gelesen werden training/runs/<lauf>/ep<k>/eval_dev.json (Whisper) bzw. eval_dev_greedy.json (Parakeet).
+Reads training/runs/<lauf>/ep<k>/eval_dev.json (Whisper) or eval_dev_greedy.json (Parakeet).
 """
 import argparse, json, re, sys
 from pathlib import Path

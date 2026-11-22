@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Schritt 2: Paket für die blinde Bewertung zweier Läufe auf den Test-Segmenten (A gegen B).
+Step 2: package for the blind rating of two runs on the test segments (A against B).
 
   python3 training/blind_rating.py --a baseline-large-v3 --b <endmodell> --tag beam5fb
   python3 training/blind_rating.py --a w-r16-lr5e-4-e3/ep3 --b pk-r16-lr2e-3-e3/ep3@greedy --tag "" \
       --out samples/blind_whisper_parakeet
 
-Läufe als <lauf>[@<tag>] (predictions_test[_<tag>].csv); ohne @ gilt --tag.
+Runs as <lauf>[@<tag>] (predictions_test[_<tag>].csv); without @, --tag applies.
 
-Stichprobe aus dem Test-Teil (Personen nicht im Training): je Interview
---je-interview zufällige Segmente, bei denen sich die beiden Ausgaben unterscheiden,
-dazu --kontrollen Paare mit gleicher Ausgabe als Aufmerksamkeitsprüfung (sollten
-"gleich" bekommen). Seiten A/B je Segment zufällig. Beide Ausgaben einheitlich
-gesetzt (klein, ohne Satzzeichen, Zahlen ausgeschrieben), damit die Schreibgewohnheiten
-des feingetunten Modells es nicht verraten; das Transkript des Archivs wird nicht
-gezeigt - bewertet wird gegen das Gehörte.
+Sample from the test part (persons not in training): per interview
+--je-interview random segments in which the two outputs differ, plus
+--kontrollen pairs with identical output as attention checks (should get
+"equal"). Sides A/B random per segment. Both outputs are set uniformly
+(lower case, no punctuation, numbers spelled out) so that the writing habits
+of the fine-tuned model do not give it away; the archive transcript is not
+shown - the rating is against what is heard.
 
--> --out (Standard samples/blindbewertung/; index.html, Anleitung.txt, audio/b###.flac; ohne Namen in
-   Dateinamen, ohne Schlüssel - so weitergebbar; ein vorhandener Ordner wird nicht überschrieben) und
+-> --out (default samples/blindbewertung/; index.html, Anleitung.txt, audio/b###.flac; no names in
+   file names, no key - so it can be passed on; an existing folder is not overwritten) and
    training/blind/schluessel_<b>.json
-   (welche Seite welches Modell ist - bleibt hier). Ausgegeben werden nur Zahlen.
+   (which side is which model - stays here). Only figures are printed.
 """
 import argparse, csv, json, re, shutil, sys
 from collections import defaultdict
@@ -35,11 +35,11 @@ KEY = ROOT / "training" / "blind"
 
 
 def neutral(text):
-    """Einheitlicher Satz: klein, ohne Satzzeichen, Zahlen ausgeschrieben."""
+    """Uniform setting: lower case, no punctuation, numbers spelled out."""
     out = []
     for tok in text.split():
-        if any(c.isdigit() for c in tok):              # norm_word schreibt ß als ss (Alignment-Vokabular);
-            out.append(norm_word(tok).replace("|", " ").replace("issig", "ißig"))  # in Zahlwörtern nur "dreißig"
+        if any(c.isdigit() for c in tok):              # norm_word writes ß as ss (alignment vocabulary);
+            out.append(norm_word(tok).replace("|", " ").replace("issig", "ißig"))  # in number words only "dreißig"
             continue
         t = re.sub(r"[^\w'\-]", "", tok.lower()).strip("-'")
         if t:
@@ -87,7 +87,7 @@ def main():
     for n, i in enumerate(order, 1):
         f, ctrl = picked[i]
         iid = f"b{n:03d}"
-        b_left = bool(rng.integers(2))                    # True: Lauf B steht als "A" links
+        b_left = bool(rng.integers(2))                    # True: run B is shown as "A" on the left
         left, right = (P[a.b][f], P[a.a][f]) if b_left else (P[a.a][f], P[a.b][f])
         shutil.copyfile(DATASET / f, out / "audio" / f"{iid}.flac")
         items.append({"id": iid, "A": neutral(left), "B": neutral(right), "d": round(meta[f]["duration"], 1)})

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Gemeinsame Helfer: Pfade, Interview-Katalog (aus den Specs), Hashes, Audio.
+Shared helpers: paths, interview catalogue (from the specs), hashes, audio.
 
-Jede Stufe liest den Katalog aus pipeline/specs/*.json. Eine Spec ist die
-einzige Stelle, an der festgelegt wird, welches Transkript zu welchen
-Audioteilen gehoert, wer welche Rolle hat und wo der Gespraechstext beginnt.
+Every stage reads the catalogue from pipeline/specs/*.json. A spec is the
+only place that defines which transcript belongs to which audio parts, who
+has which role and where the conversation text begins.
 """
 import hashlib, json, re, subprocess, unicodedata, wave
 from pathlib import Path
@@ -36,8 +36,8 @@ def slug(s):
 
 
 def resolve(rel):
-    """Pfad aus einer Spec (NFC) auf die Platte abbilden. APFS findet NFC und
-    NFD meist beide; zur Sicherheit wird notfalls im Verzeichnis verglichen."""
+    """Map a path from a spec (NFC) to the disk. APFS usually finds both NFC
+    and NFD; to be safe, the directory is compared if necessary."""
     p = ROOT / rel
     if p.exists():
         return p
@@ -54,7 +54,7 @@ def resolve(rel):
 
 
 def rel(p):
-    # absolute() statt resolve(): Interviews/ darf ein symbolischer Link auf den Datenordner sein
+    # absolute() instead of resolve(): Interviews/ may be a symbolic link to the data folder
     return nfc(str(Path(p).absolute().relative_to(ROOT)))
 
 
@@ -89,8 +89,8 @@ def sha1_text(s):
 
 
 def code_hash(*names):
-    """Hash der beteiligten Pipeline-Dateien - landet in jeder Ausgabe, damit
-    veraltete Zwischenstaende erkannt werden (v1 hatte genau dieses Problem)."""
+    """Hash of the pipeline files involved - stored in every output so that
+    stale intermediate results are detected (v1 had exactly this problem)."""
     h = hashlib.sha1()
     for n in names:
         h.update((PIPE / n).read_bytes())
@@ -98,7 +98,7 @@ def code_hash(*names):
 
 
 def audio_duration(path):
-    """Dauer in Sekunden ueber die ffmpeg-Kopfzeile (ffprobe fehlt hier)."""
+    """Duration in seconds from the ffmpeg header (ffprobe is missing here)."""
     if Path(path).suffix.lower() == ".wav":
         try:
             with wave.open(str(path)) as w:

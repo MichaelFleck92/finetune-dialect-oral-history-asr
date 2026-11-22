@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Alle Kennzahlen fuer README und Kapitel - aus den Daten berechnet, nicht von
-Hand abgeschrieben (v1: viele Zahlen der Doku liessen sich nicht nachrechnen).
+All figures for the README and the chapters - computed from the data, not
+copied by hand (v1: many figures in the documentation could not be recomputed).
 
   python3 pipeline/report.py > work/eval/report.md
 
-Ausnahmen, die nicht aus den Daten kommen, stehen in der Doku als solche:
-Angaben zu v1 (aus der Begutachtung des Stands vom 23.09.2026) und die
-Sichtpruefungen von Hand (Schriftlage). Die blinde Hoerprobe der groben
-Markenabweichungen geht als Bewertungsdatei ein (work/eval/marker_hoerprobe_bewertung.csv).
+Exceptions that do not come from the data are marked as such in the documentation:
+figures on v1 (from the review of the version of 23.09.2026) and the manual
+visual checks (slant of the typeface). The blind listening check of the gross
+mark deviations enters as a rating file (work/eval/marker_hoerprobe_bewertung.csv).
 """
 import collections, csv, json, re, sys
 from pathlib import Path
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ROOT, WORK, DATASET, load_specs, PROJECTS
 
 
-# Interview mit eigenem Markenformat (Auswertung getrennt), aus config/report.json
+# interview with its own mark format (evaluated separately), from config/report.json
 FORMAT_B_ID = (json.loads((ROOT / "config" / "report.json").read_text(encoding="utf-8")).get("format_b_id")
                if (ROOT / "config" / "report.json").exists() else None)
 
@@ -37,7 +37,7 @@ def main():
     proj_of = {i: s["project"] for i, s in specs.items()}
     P = list(PROJECTS)
     print(f"# Kennzahlen (erzeugt mit pipeline/report.py)\n")
-    # ---------------- Bestand
+    # ---------------- inventory
     audio = {i: json.loads((WORK / "audio16k" / f"{i}.json").read_text())["duration_s"] for i in specs}
     turns = {i: json.loads((WORK / "turns" / f"{i}.json").read_text()) for i in specs}
     words = {i: sum(t["n_words"] for t in turns[i]["turns"]) for i in specs}
@@ -63,7 +63,7 @@ def main():
             rw[t["role"]] += t["n_words"]
     tw = sum(rw.values())
     print("Wortanteile nach Rolle: " + ", ".join(f"{k} {100*v/tw:.1f} %" for k, v in rw.most_common()) + "\n")
-    # ---------------- Einwilligung
+    # ---------------- consent
     cons = collections.Counter()
     for s in specs.values():
         v = s["consent"]["anonymise_requested"]
@@ -86,7 +86,7 @@ def main():
     for k in ("zeile_verworfen", "zeile_als_luecke", "einwurf_abgetrennt", "kuerzel_im_satz_getrennt",
               "klammer_offen_als_luecke", "unsicher_markiert", "zeitmarken", "zeitmarken_unlesbar", "text_sub"):
         print(f"- {k}: {st.get(k, 0)}")
-    # Schriftlage der abfotografierten Transkripte (ocr_zwangsarbeiter.py)
+    # slant of the typeface in the photographed transcripts (ocr_zwangsarbeiter.py)
     ocr = [x for f in sorted((WORK / "ocr").glob("*_zeilen.tsv"))
            for x in csv.DictReader(open(f, encoding="utf-8"), delimiter="\t")]
     if ocr:
@@ -96,7 +96,7 @@ def main():
         print(f"\nSchriftlage (OCR, {len(ocr)} Zeilen): aufrecht {len(up)} Zeilen, {up[0]:+.0f} bis {up[-1]:+.0f} Grad; "
               f"kursiv {len(it)} Zeilen, {it[0]:+.0f} bis {it[-1]:+.0f} Grad; kursiv je Grad: "
               + ", ".join(f"{k}: {v}" for k, v in sorted(hist.items())))
-    # ---------------- Alignment
+    # ---------------- alignment
     print("\n## Alignment\n")
     al = {i: json.loads((WORK / "aligned" / f"{i}.json").read_text()) for i in specs
           if (WORK / "aligned" / f"{i}.json").exists()}
@@ -106,7 +106,7 @@ def main():
         for k, v in a["stats"].items():
             ast[k] += v
     print(f"Wörter aligniert: {na:,} von {nw:,} ({100*na/nw:.2f} %)".replace(",", "."))
-    # seit v2.1: verklebte Token ("Jahren…seit") getrennt, Zahlwoerter mit ß richtig normalisiert
+    # since v2.1: glued tokens ("Jahren…seit") separated, number words with ß normalised correctly
     import re as _re
     from align import spell_number
     glued = collections.Counter()
@@ -124,7 +124,7 @@ def main():
         per = {i: a["stats"].get(k, 0) for i, a in al.items() if a["stats"].get(k)}
         print(f"- {k}: {sum(per.values())} {per}")
         if k == "woerter_text_ohne_ton":
-            # Dauer geschaetzt mit der Sprechrate desselben Interviews
+            # duration estimated with the speech rate of the same interview
             for i, n in per.items():
                 rate = np.median([o["words_per_s"] for o in segs.get(i, []) if o["keep"]])
                 print(f"  {i}: bei {rate:.2f} Wörtern/s (Median der Segmente) ≈ {n/rate/60:.1f} min")
@@ -147,7 +147,7 @@ def main():
         A_of = {r["id"]: (float(r["versatz_alignment_s"]) if r.get("versatz_alignment_s") else None) for r in rows}
         in_ds = {r["id"] for r in drin}
         if any(v is not None for v in D_of.values()):
-            # Zusammenfassung ueber die Interviews des Datensatzes; das Gruppengespraech eigens
+            # summary over the interviews of the dataset; the group conversation separately
             Ds = sorted(((i, v) for i, v in D_of.items() if v is not None and i in in_ds), key=lambda x: -abs(x[1]))
             As = [v for i, v in A_of.items() if v is not None and i in in_ds]
             print(f"Verzug der Marken, unabhängig vom Alignment gemessen: Whisper-large-v3 hört an je bis zu "
@@ -227,7 +227,7 @@ def main():
             if not d.get("hand_markers_valid", True) or len(rr) < 3:
                 continue
             pe = {"id": d["id"], "rows": rr}
-            devs = list(errors(pe, "whisper", est))     # korrigiert nur um den unabhängig gemessenen Verzug
+            devs = list(errors(pe, "whisper", est))     # corrected only for the independently measured delay
             if d["id"] in out_ids:
                 grp_x += devs; continue
             for v in var:
@@ -259,7 +259,7 @@ def main():
             x = np.array(var[v])
             print(f"| {name} | {np.median(x):.2f} s | {np.percentile(x,90):.2f} s | {100*np.mean(x<=2):.1f} % | "
                   f"{100*np.mean(x<=5):.1f} % |")
-    # ---------------- Segmente / Datensatz
+    # ---------------- segments / dataset
     print("\n## Datensatz\n")
     excl = {i: s["exclude"] for i, s in specs.items() if s.get("exclude")}
     for i, why in excl.items():
@@ -297,7 +297,7 @@ def main():
             d = sum(x["duration"] for x in r)
             print(f"| {PROJECTS[p]} | {len(r):,} | {h(d)} | {pct(d/tot)} | {pct(d/a)} |".replace(",", "."))
         print(f"| **gesamt** | {len(rows):,} | {h(tot)} | 100 % | {pct(tot/sum(audio.values()))} |\n".replace(",", "."))
-        for av in sorted((ROOT / "archive").glob("v*_*"), key=lambda x: x.name.rsplit("_", 1)[-1])[-1:]:  # juengster Stand
+        for av in sorted((ROOT / "archive").glob("v*_*"), key=lambda x: x.name.rsplit("_", 1)[-1])[-1:]:  # most recent version
             am = av / "dataset/metadata.jsonl"
             if am.exists():
                 prev = [json.loads(l) for l in am.read_text(encoding="utf-8").splitlines()]
@@ -306,7 +306,7 @@ def main():
         d = np.array([x["duration"] for x in rows])
         print(f"Segmentlänge: Median {np.median(d):.1f} s, 10./90. Perzentil {np.percentile(d,10):.1f}/{np.percentile(d,90):.1f} s, "
               f"< 5 s {100*np.mean(d<5):.0f} %, 5–15 s {100*np.mean((d>=5)&(d<15)):.0f} %, ≥ 15 s {100*np.mean(d>=15):.0f} %, max {d.max():.1f} s")
-        # Satzgrenzen: beginnt der Zieltext klein bzw. endet er ohne Satzzeichen, liegt der Schnitt mitten im Satz
+        # sentence boundaries: if the target text starts in lower case or ends without punctuation, the cut lies mid-sentence
         low = np.mean([x["text"][:1].islower() for x in rows])
         nop = np.mean([not re.search(r'[.!?…"“”]$', x["text"]) for x in rows])
         print(f"Schnitt mitten im Satz: {100*low:.0f} % der Zieltexte beginnen klein, {100*nop:.0f} % enden ohne Satzzeichen\n")
@@ -331,8 +331,8 @@ def main():
               + "; ".join(", ".join(sorted(v)) for v in sorted(groups.values(), key=sorted) if len(v) > 1))
         print(f"consent_anonymise: " + str(dict(collections.Counter(str(x['consent_anonymise']) for x in rows))))
         print(f"Segmente ohne Interviewdatum: {sum(1 for x in rows if not x.get('date'))}")
-        # je Interview: wo geht Audio verloren? Abdeckung (Kandidaten/Audio) -> Durchlass des
-        # Guetefilters -> Ausbeute; in dev/test entfallen zusaetzlich die Interviewer-Segmente
+        # per interview: where is audio lost? coverage (candidates/audio) -> pass rate of the
+        # quality filter -> yield; in dev/test the interviewer segments are dropped as well
         split_of = {x["interview"]: x["split"] for x in rows}
         print("\n| Interview | Audio (h) | Abdeckung | Durchlass | Ausbeute | Teil | Interviewer-Anteil |\n|---|---|---|---|---|---|---|")
         for i in sorted(specs, key=lambda i: yi[i]):
@@ -382,7 +382,7 @@ def main():
         for x in cal["rules"]:
             print(f"| {x['rule']} | {x['n_sample']} | {x['flag_h']:.2f} | {span(x['precision'], x['precision_ci'])} | "
                   f"{span(x['recall'], x['recall_ci'])} | {x['good_lost_h']:.2f} |")
-    # ---------------- Hoerprobe(n): menschliche Bewertung
+    # ---------------- listening check(s): human rating
     probes = [(ROOT / "archive/v2_2026-09-27/hoerprobe", "Stand v2 (27.09.2026, seed 7)"),
               (ROOT / "archive/v2.1_2026-09-28/hoerprobe", "Stand v2.1 (28.09.2026, seed 28, Fehlerarten)"),
               (ROOT / "samples", "aktueller Stand")]
@@ -392,10 +392,10 @@ def main():
         if not (tsv.exists() and csvf.exists()):
             continue
         sample = {r["file_name"]: r for r in csv.DictReader(open(tsv, encoding="utf-8"), delimiter="\t")}
-        how = {r.get("ziehung") for r in sample.values()} - {None, ""}   # seit 01.10.2026 in der TSV
+        how = {r.get("ziehung") for r in sample.values()} - {None, ""}   # in the TSV since 01.10.2026
         if how:
             label += ", " + ", ".join(sorted(how))
-        from make_samples import read_votes, FLAGS   # altes (file_name;bewertung) und neues Format
+        from make_samples import read_votes, FLAGS   # old (file_name;bewertung) and new format
         allv = [v for v in read_votes(csvf) if v["file_name"] in sample]
         full = [v for v in allv if v["urteil"] != "offen"]
         votes = [(v["file_name"], v["alt"] or v["urteil"]) for v in full]
@@ -406,7 +406,7 @@ def main():
             shown = True
         c = collections.Counter(v for _, v in votes)
         n, k = len(votes), c["passt"]
-        z = 1.96                                 # Wilson-Intervall, 95 %
+        z = 1.96                                 # Wilson interval, 95 %
         mid = (k / n + z * z / (2 * n)) / (1 + z * z / n)
         half = z / (1 + z * z / n) * np.sqrt(k / n * (1 - k / n) / n + z * z / (4 * n * n))
         print(f"{label}: {n} von {len(sample)} bewertet – "
@@ -427,15 +427,15 @@ def main():
         print("  je Gütestufe: " + "; ".join(f"{q}: passt {cc['passt']}/{sum(cc.values())} "
                                               f"({100*cc['passt']/sum(cc.values()):.0f} %)"
                                               for q, cc in sorted(byq.items())))
-        uf = d / "ursachen.csv"                  # Einordnung der Beanstandungen (von Hand)
+        uf = d / "ursachen.csv"                  # classification of the complaints (by hand)
         if uf.exists():
             u = list(csv.DictReader(open(uf, encoding="utf-8"), delimiter=";"))
             print(f"  Ursachen der {len(u)} Beanstandungen (von Hand eingeordnet, {uf.relative_to(ROOT)}): "
                   + ", ".join(f"{k} {n}" for k, n in collections.Counter(x["ursache"] for x in u).most_common()))
         ew2 = d.parent / "work/eval/segments_whisper.csv"
-        if ew2.exists():                         # automatisches Urteil desselben Stands
+        if ew2.exists():                         # automatic verdict on the same version
             r2 = list(csv.DictReader(open(ew2, encoding="utf-8")))
-            from eval_segments import bad_flags      # dieselbe Einstufung wie fuer den aktuellen Stand
+            from eval_segments import bad_flags      # the same classification as for the current version
             bad2 = np.mean([b for x, b in zip(r2, bad_flags(r2)) if x["kind"] == "keep"])
             print(f"  zum Vergleich, Whisper-Kriterium an diesem Stand: {100*bad2:.1f} % der behaltenen Segmente 'schlecht'")
     for d, label, wf in ((ROOT / "archive/v2.2_2026-09-28/nachpruefung", "v2.1 gegen v2.2 (Polstergrenze an beiden Kanten)",
@@ -462,7 +462,7 @@ def main():
             res = compare_verdicts(nf, nt)
             print("  gesamt: " + ", ".join(f"{v} {sum(1 for _, x, _ in res if x == v)}"
                                            for v in ("neu besser", "gleich", "alt besser")))
-            if wf.exists():                       # stimmt Whisper mit dem Gehoer ueberein?
+            if wf.exists():                       # does Whisper agree with the ear?
                 wv = {x["paar"]: ("neu besser" if float(x["cer_neu"]) - float(x["cer_alt"]) < -0.01 else
                                   "alt besser" if float(x["cer_neu"]) - float(x["cer_alt"]) > 0.01 else "gleich") for x in w}
                 agree = sum(1 for p, v, _ in res if wv.get(p["paar"]) == v)
@@ -479,7 +479,7 @@ def main():
                   f"{x['verlust_hochsprache_pct']} % | {x['r_dialekt']} | {x['beanstandet_unveraendert']} / "
                   f"{x['beanstandet_gekuerzt']} / {x['beanstandet_entfallen']} | {x['passt_unveraendert']} / "
                   f"{x['passt_gekuerzt']} / {x['passt_entfallen']} |")
-    # ---------------- Rechenzeit (Emissionen, aus den Protokollen)
+    # ---------------- compute time (emissions, from the logs)
     runs = []
     for f in sorted((WORK / "logs").glob("emissions*.log")):
         for m in re.finditer(r"\]\s+(\S+)\s+([\d.]+) min in\s+([\d.]+) min", f.read_text(errors="replace")):

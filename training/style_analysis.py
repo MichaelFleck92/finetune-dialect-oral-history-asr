@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-Schritt 3: echte Verbesserung oder nur Transkriptionsstil? Vergleicht zwei Läufe
-(A = Ausgangsmodell, B = feingetunt) auf demselben Teil, ohne Text auszugeben.
+Step 3: real improvement or just transcription style? Compares two runs
+(A = base model, B = fine-tuned) on the same part, without printing text.
 
   python3 training/style_analysis.py --a baseline-large-v3 --b <lauf> --tag beam5fb
 
-1. Fehler je Wortklasse des Transkripts (Funktionswort, Partikel, Nomen/Name,
-   anderes Inhaltswort, Zahl; dazu eingefügte Wörter) und Anteil am Gewinn.
-2. Stilfreie WER: Partikeln auf beiden Seiten ignoriert, unmittelbare
-   Wiederholungen zusammengefasst, fast gleiche Schreibung (Zeichenähnlichkeit
-   >= 0,8, z. B. hab/habe) nicht als Fehler. Bleibt der Gewinn, liegt er nicht in
-   diesen Stilfragen. Mit Bootstrap über die Interviews.
-3. Passung zum Audio ohne Transkript: CTC-Likelihood jedes Textes unter dem
-   unabhängigen Akustikmodell der Pipeline (wav2vec2, gespeicherte Emissionen in
-   work/emissions). Das Modell kennt die Konventionen des Archivs nicht; es
-   bevorzugt allerdings lautnahe Schreibung (Dialekt "begumaster" vor
-   "Bürgermeister") und misst darum Auslassen/Hinzufügen besser als Normalisierung.
-   Dazu die Kreuztabelle WER-Urteil gegen Akustik-Urteil je Segment.
--> training/runs/<b>/stil_<split>[_<tag>].json (nur Zahlen; Lauf-Schrägstriche als -).
+1. Errors per word class of the transcript (function word, particle, noun/name,
+   other content word, number; plus inserted words) and share of the gain.
+2. Style-free WER: particles ignored on both sides, immediate repetitions
+   merged, almost identical spelling (character similarity >= 0.8, e.g.
+   hab/habe) not counted as an error. If the gain remains, it does not lie in
+   these questions of style. With a bootstrap over the interviews.
+3. Fit to the audio without the transcript: CTC likelihood of each text under the
+   pipeline's independent acoustic model (wav2vec2, stored emissions in
+   work/emissions). The model does not know the archive's conventions; it does,
+   however, prefer spellings close to the sound (dialect "begumaster" over
+   "Bürgermeister") and therefore measures omissions/additions better than normalisation.
+   Plus the cross-table of WER verdict against acoustic verdict per segment.
+-> training/runs/<b>/stil_<split>[_<tag>].json (figures only; slashes in run names as -).
 """
 import argparse, csv, json, sys
 from collections import defaultdict
@@ -111,7 +111,7 @@ def main():
 
     # 1 + 2
     per = {k: defaultdict(lambda: [0, 0]) for k in (a.a, a.b)}
-    iv_std = defaultdict(lambda: np.zeros(6))           # je Interview: Fehler A, B, Wörter; stilfrei A, B, Wörter
+    iv_std = defaultdict(lambda: np.zeros(6))           # per interview: errors A, B, words; style-free A, B, words
     for f in files:
         ref = classes(meta[f]["text"])
         rw = [w for w, _ in ref]

@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
 """
-Hoerprobe mit Bewertung: samples/pruefliste.html
+Listening check with rating: samples/pruefliste.html
 
-Zufaellige, dauerproportionale Stichprobe aus dem fertigen Datensatz (jede
-Stunde Material hat dieselbe Chance, gezogen zu werden - keine Schichtung, die
-man hinterher umrechnen muesste). Je Probe: Audio, Text und ein Urteil (18.11.2026):
+Random, duration-proportional sample from the finished dataset (every hour
+of material has the same chance of being drawn - no stratification that would
+have to be converted afterwards). Per sample: audio, text and a verdict (18.11.2026):
 
-  passt                Ausschnitt und Text stimmen ueberein
-  falsch geschnitten   Fehler der Pipeline: Wort am Anfang/Ende abgeschnitten, zu viel Ton,
-                       andere Stimme im Ausschnitt, Text gehoert an eine andere Stelle
-  Transkript falsch    Fehler des Archivtranskripts: Schnitt stimmt, aber im Inneren fehlen
-                       Woerter, stehen zu viel, sind falsch oder umformuliert
-  unsicher             nicht zu entscheiden
+  passt                excerpt and text match
+  falsch geschnitten   pipeline error: word cut off at the start/end, too much audio,
+                       another voice in the excerpt, text belongs elsewhere
+  Transkript falsch    error of the archive transcript: the cut is right, but inside, words
+                       are missing, superfluous, wrong or rephrased
+  unsicher             cannot be decided
 
-"falsch geschnitten" und "Transkript falsch" koennen beide zutreffen; die Einzelheiten
-(welche Kante, welche Art) sind optional. Tastatur: 1-4 Urteil, Leertaste Abspielen,
-j/k naechste/vorige Probe.
+"falsch geschnitten" and "Transkript falsch" can both apply; the details
+(which edge, which kind) are optional. Keyboard: 1-4 verdict, space bar plays,
+j/k next/previous sample.
 
-Die Bewertungen bleiben im Browser gespeichert und lassen sich als CSV
-herunterladen; pipeline/make_samples.py --summary samples/bewertung.csv
-fasst sie zusammen (Anteile mit 95-%-Intervall nach Wilson, je Projekt; auch die
-frueheren Formate). Rein lokal - die Seite laedt das Audio aus dataset/.
+The ratings stay stored in the browser and can be downloaded as CSV;
+pipeline/make_samples.py --summary samples/bewertung.csv
+summarises them (shares with Wilson 95 % intervals, per project; earlier
+formats too). Purely local - the page loads the audio from dataset/.
 
   python3 pipeline/make_samples.py --n 150 --seed 2027
   python3 pipeline/make_samples.py --n 30 --seed 1001 --gleichverteilt
 
---gleichverteilt zieht jedes Segment mit derselben Chance statt nach Dauer -
-dann beschreibt die Quote Segmente statt Stunden. Die Guetestufe steht nicht auf
-dem Pruefblatt (sichtbar beeinflusste sie das Urteil); --mit-stufe zeigt sie wieder.
-In pruefliste.tsv steht sie weiter, ebenso die Art der Ziehung.
+--gleichverteilt draws every segment with the same chance instead of by
+duration - then the rate describes segments instead of hours. The quality
+level is not on the rating sheet (when visible, it influenced the verdict);
+--mit-stufe shows it again. It is still in pruefliste.tsv, as is the kind of draw.
 
-Nachpruefung nach einer Regelaenderung: dieselben bewerteten Segmente vorher
-(Archiv) und jetzt, blind als A/B - welche Fassung vorn steht, ist je Paar
-zufaellig. Nur Paare, deren Schnitt sich geaendert hat.
+Re-check after a rule change: the same rated segments before (archive) and
+now, blind as A/B - which version comes first is random per pair. Only
+pairs whose cut has changed.
 
   python3 pipeline/make_samples.py --vergleich archive/v2.1_2026-09-28
   python3 pipeline/make_samples.py --summary-vergleich samples/nachpruefung.csv
@@ -45,7 +45,7 @@ from common import ROOT, DATASET
 
 OUT = ROOT / "samples"
 
-# Hauptkategorien (Spalte, Knopf) und Einzelheiten (Spalte, Kategorie, Knopf) - Reihenfolge = Spalten der CSV
+# main categories (column, button) and details (column, category, button) - order = columns of the CSV
 CATS = [("schnitt", "falsch geschnitten"), ("transkript", "Transkript falsch")]
 FLAGS = [
     ("anfang_abgeschnitten", "schnitt", "Anfang: Wort abgeschnitten"),
@@ -64,7 +64,7 @@ FLAG_CAT = {k: c for k, c, _ in FLAGS}
 
 def pick(rows, n, seed, uniform=False):
     rng = random.Random(seed)
-    if uniform:                                  # jedes Segment gleich wahrscheinlich
+    if uniform:                                  # every segment equally likely
         return [rows[i] for i in rng.sample(range(len(rows)), min(n, len(rows)))]
     w = [r["duration"] for r in rows]
     idx = set()
@@ -218,10 +218,10 @@ def build(rows, seed, date, how="zufällig nach Dauer gezogen", show_tier=False)
 
 
 def read_votes(path):
-    """Bewertungs-CSV -> [{file_name, urteil (passt|fehler|unsicher|offen), cats, flags, notiz, alt}].
-    "offen" = nur eine Notiz, noch kein Urteil. cats: Teilmenge von {schnitt, transkript}, aus den
-    Spalten der Hauptkategorien oder - in frueheren Formaten - aus den Einzelheiten abgeleitet.
-    Aeltestes Format (Stand v2): file_name;bewertung mit passt|schnitt|text|unsicher."""
+    """Rating CSV -> [{file_name, urteil (passt|fehler|unsicher|offen), cats, flags, notiz, alt}].
+    "offen" = only a note, no verdict yet. cats: subset of {schnitt, transkript}, from the
+    columns of the main categories or - in earlier formats - derived from the details.
+    Oldest format (version v2): file_name;bewertung with passt|schnitt|text|unsicher."""
     rows = [r for r in csv.reader(open(path, encoding="utf-8-sig", newline=""), delimiter=";") if r]
     head, body = rows[0], rows[1:]
     out = []
@@ -251,7 +251,7 @@ def wilson(k, n, z=1.96):
 
 def summary(path, show_notes=False):
     allv = read_votes(path)
-    votes = [v for v in allv if v["urteil"] != "offen"]   # "offen": nur Notiz, noch kein Urteil
+    votes = [v for v in allv if v["urteil"] != "offen"]   # "offen": only a note, no verdict yet
     n = len(votes)
     if not n:
         print("noch keine Urteile"); return
@@ -267,7 +267,7 @@ def summary(path, show_notes=False):
     for label, f in groups:
         print(line(label, sum(map(f, votes)), n))
     by = collections.defaultdict(list)
-    for v in votes:                              # Projekt steht im Dateinamen (audio/rs_x/rs_x_...)
+    for v in votes:                              # the project is in the file name (audio/rs_x/rs_x_...)
         by[v["file_name"].split("/")[1].split("_")[0]].append(v)
     for p, vs in sorted(by.items()):
         m = len(vs)
@@ -324,7 +324,7 @@ upd();
 
 
 def build_compare(arch, seed=1):
-    """Bewertete Segmente eines archivierten Stands gegen den aktuellen Datensatz."""
+    """Rated segments of an archived version against the current dataset."""
     arch = Path(arch).resolve()
     old = {}
     for l in (arch / "dataset/metadata.jsonl").read_text(encoding="utf-8").splitlines():
@@ -372,8 +372,8 @@ def build_compare(arch, seed=1):
 
 
 def compare_verdicts(path, tsv=None):
-    """nachpruefung.csv + nachpruefung.tsv -> [(Paar-Zeile, Urteil, Notiz)] mit
-    Urteil "neu besser" | "gleich" | "alt besser" (A/B zurueckuebersetzt)."""
+    """nachpruefung.csv + nachpruefung.tsv -> [(pair row, verdict, note)] with
+    verdict "neu besser" | "gleich" | "alt besser" (A/B mapped back)."""
     tsv = Path(tsv or Path(path).with_name("nachpruefung.tsv"))
     pairs = {r["paar"]: r for r in csv.DictReader(open(tsv, encoding="utf-8"), delimiter="\t")}
     out = []
@@ -389,14 +389,14 @@ def compare_verdicts(path, tsv=None):
 
 
 def edge_kind(p):
-    """Welche Kante hat sich im Paar geaendert: nur Anfang | nur Ende | beide."""
+    """Which edge changed in the pair: only start | only end | both."""
     a, e = abs(float(p["d_anfang"])) > 0.005, abs(float(p["d_ende"])) > 0.005
     return "beide" if a and e else ("nur Anfang" if a else "nur Ende")
 
 
 def summary_compare(path, tsv=None, before_csv=None):
-    """Auswertung der Nachpruefung: getrennt nach dem frueheren Urteil und nach
-    der geaenderten Kante."""
+    """Evaluation of the re-check: separately by the earlier verdict and by
+    the changed edge."""
     arch = Path(before_csv) if before_csv else ROOT / "archive" / "v2.1_2026-09-28" / "hoerprobe" / "bewertung.csv"
     before = {v["file_name"]: v for v in read_votes(arch)} if arch.exists() else {}
     res = compare_verdicts(path, tsv)

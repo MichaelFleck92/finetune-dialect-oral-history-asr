@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Namen auf ganzen Interviews: gelernter Wortschatz oder Verallgemeinerung?
+Names on complete interviews: learned vocabulary or generalisation?
 
   python3 training/longform_train_overlap.py baseline-large-v3:greedy dh-w-r16-lr2e-4-e3/ep2:greedy \
       parakeet-tdt-0.6b-v3:greedy dh-pk-r16-lr2e-3-e3/ep3:greedy
 
-Läufe paarweise (Ausgangsmodell, feingetuntes Modell), Nennungen und Erkennung wie
-longform_entities.py (Namen und Daten, ohne Sonstiges). Je Nennung: Kommt ihre Wortfolge
-(normalisiert wie die WER) im Trainingstext vor (dataset/metadata.jsonl, split train, Feld
-text - das, was das Modell im Training gesehen hat)? Dann Erkennungsrate je Paar getrennt
-nach "gesehen" / "nie gesehen" und wie viele der Nennungen, die nur das feingetunte Modell
-trifft, im Training standen. Ausgegeben werden nur Zahlen.
+Runs in pairs (base model, fine-tuned model), mentions and recognition as in
+longform_entities.py (names and dates, without "other"). Per mention: does its word sequence
+(normalised like the WER) occur in the training text (dataset/metadata.jsonl, split train, field
+text - what the model saw in training)? Then the recognition rate per pair separately
+for "seen" / "never seen" and how many of the mentions that only the fine-tuned model
+gets right were in the training data. Only figures are printed.
 -> training/longform/training_ueberlappung.json
 """
 import argparse, json, sys
@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from whisper_common import ROOT, words
 from longform_entities import collect
 
-MAXN = 8                                   # längste Nennung in Wörtern, die gesucht wird
+MAXN = 8                                   # longest mention searched for, in words
 
 
 def train_ngrams():

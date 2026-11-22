@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-Stufe 1: Transkript -> Sprecherturns, gesteuert von der Spec des Interviews.
+Stage 1: transcript -> speaker turns, controlled by the interview's spec.
 
-Die Spec (pipeline/specs/<id>.json) legt fest, was in v1 geraten wurde: welche
-Kuerzel Sprecher sind, wer welche Rolle hat, wo das Gespraech beginnt und
-endet, welche Zeilen Seitenkopf sind und was einzelne Anmerkungen bedeuten.
-Die Specs schreibt pipeline/llm_specs.py (Qwen3-235B aus der Strukturuebersicht
-von pipeline/inventory.py); sie sind von Hand pruefbar.
+The spec (pipeline/specs/<id>.json) fixes what v1 guessed: which tags are
+speakers, who has which role, where the conversation starts and ends, which
+lines are page headers and what individual annotations mean.
+The specs are written by pipeline/llm_specs.py (Qwen3-235B from the structural
+overview of pipeline/inventory.py); they can be checked by hand.
 
-Der Parser selbst entscheidet nichts Inhaltliches. Er schneidet nur heraus
-(Kopf, Kuerzel, Anmerkungen, Zeitmarken) und setzt Markierungen; er fuegt
-keinen Text hinzu. Das wird am Ende geprueft: die Woerter der Turns muessen
-in derselben Reihenfolge im Quelltext stehen (nach Reparatur der Ligaturen).
+The parser itself decides nothing about content. It only cuts things out
+(header, tags, annotations, time marks) and sets markers; it adds no text.
+This is checked at the end: the words of the turns must occur in the same
+order in the source text (after the ligatures are repaired).
 
-Ausgabe: work/turns/<id>.json - Turns mit Sprecher, Rolle, Person und Text.
-Im Text stehen nur drei Markierungen:
-  [unv]  unverstaendlich/unsicher      -> Joker im Alignment, Segmentgrenze
-  [gap]  Sprache ohne Text im Audio    -> Joker im Alignment, Segmentgrenze
-  [nv]   Lachen, Gesten, Husten        -> kein Joker (Blank-Frames nehmen es auf), keine Grenze
-Handgesetzte Zeitmarken werden entfernt und nur zur Kontrolle mitgeschrieben.
+Output: work/turns/<id>.json - turns with speaker, role, person and text.
+The text contains only three markers:
+  [unv]  unintelligible/uncertain      -> wildcard in the alignment, segment boundary
+  [gap]  speech without text in audio  -> wildcard in the alignment, segment boundary
+  [nv]   laughter, gestures, coughing  -> no wildcard (blank frames absorb it), no boundary
+Hand-set time marks are removed and only recorded for checking.
 
   python3 pipeline/parse_transcripts.py [--only ID] [--report]
 """
@@ -32,16 +32,16 @@ from sources import read_lines, build_vocab, detect_glyphs, repair_glyphs
 from notes import classify
 
 OUT = WORK / "turns"
-# Format-Profile je Transkriptart (Kuerzelstil, Seitenkoepfe, Abspann): config/profiles.json (lokal,
-# enthaelt Namen aus Seitenkoepfen); Vorlage config/profiles.example.json
+# format profiles per transcript type (tag style, page headers, closing credits): config/profiles.json (local,
+# contains names from page headers); template config/profiles.example.json
 PROFILES = json.loads((ROOT / "config" / "profiles.json").read_text(encoding="utf-8"))
 
-# ------------------------------------------------------------------ Kuerzel
+# ------------------------------------------------------------------ tags
 
 def tolerant(tag):
     """'Hr. Muster' -> Hr[\\s.]*Muster\\.? ; 'A.K.' -> A[\\s.]*K\\.?
-    Die Transkripte schreiben dasselbe Kuerzel mit wechselnden Punkten und
-    Leerzeichen ([A.K] / [A.K.] / [Anna  Kurz] / Hr..  Muster)."""
+    The transcripts write the same tag with varying dots and spaces
+    ([A.K] / [A.K.] / [Anna  Muster] / Hr..  Muster)."""
     parts = [p for p in re.split(r"[\s.]+", tag) if p]
     return r"[\s.]*".join(re.escape(p) for p in parts) + r"\.?"
 
@@ -49,7 +49,7 @@ def tolerant(tag):
 class Tags:
     def __init__(self, spec, style):
         self.style = style
-        self.map = {}                       # Kuerzel-Variante -> kanonisches Kuerzel
+        self.map = {}                       # tag variant -> canonical tag
         for t in spec.get("speakers", {}):
             self.map[t] = t
         for a, t in spec.get("tag_aliases", {}).items():
@@ -61,10 +61,10 @@ class Tags:
             self.line = re.compile(r"^\s*\[\s*(?:" + pat + r")\s*\]\s*:?\s*") if alts else None
             self.inline = re.compile(r"(?<=\s)\[\s*(?:" + pat + r")\s*\]\s*:?\s+") if alts else None
         else:
-            # "_" statt ":" ist ein Tippfehler im Transkript ("okay. ZZ_ Und mein Onkel")
+            # "_" instead of ":" is a typo in the transcript ("okay. ZZ_ Und mein Onkel")
             self.line = re.compile(r"^\s*(?:" + pat + r")\s*[:_]\s*") if alts else None
             self.inline = re.compile(r"(?<=[.!?…\"“”)\]»'’])\s+(?:" + pat + r")\s*[:_]\s+") if alts else None
-        # eingebettete Einwuerfe "[I: Okay.]" - in beiden Stilen
+        # embedded interjections "[I: Okay.]" - in both styles
         self.bracket_turn = re.compile(r"\[\s*(?:" + pat + r")\s*:\s*([^\[\]]+?)\s*\]") if alts else None
         self.regex = [(re.compile(r), t) for r, t in spec.get("tag_regex", {}).items()]
 
@@ -85,7 +85,7 @@ class Tags:
                 return self.which(m), m.end()
         return None, 0
 
-# ------------------------------------------------------------------ Zeitmarken
+# ------------------------------------------------------------------ time marks
 
 TS_ANY = re.compile(r"\(?#\s*[\d:.,\-]*\d[\d:.,\-]*\s*#?\)?|##")
 TS_OK = re.compile(r"^\(?#\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,-](\d{1,2}))?\s*#?\)?$")
@@ -101,22 +101,22 @@ def parse_ts(raw):
         t += int(frac) / (10 ** len(frac))
     return float(t)
 
-# ------------------------------------------------------------------ Anmerkungen
+# ------------------------------------------------------------------ annotations
 
 NOTE = re.compile(r"\[[^\[\]]*\]|\((?!\s*\d{1,2}\s*\)\d)[^()]*\)")
 MIXED = re.compile(r"\[[^\[\]()]{1,80}\)|\([^()\[\]]{1,80}\]")
 UNSURE_PREV = re.compile(r"(\S+?)\s*[\[(]\s*\?\s*[\])]")
-# Waehrend der Verarbeitung klammerfreie Platzhalter - sonst verhindern die
-# eingesetzten "[gap]" eines inneren Vermerks, dass der aeussere Vermerk als
-# Ganzes erkannt wird ("[Ab 1:20:00 erzaehlt EK ... (wie viele ...) ...]").
+# Bracket-free placeholders during processing - otherwise the "[gap]"
+# inserted for an inner note would prevent the outer note from being
+# recognised as a whole ("[Ab 1:20:00 erzaehlt XY ... (wie viele ...) ...]").
 PH = {"unv": "\ue000unv\ue001", "gap": "\ue000gap\ue001", "nv": "\ue000nv\ue001"}
 MARK = {"unclear": f" {PH['unv']} ", "gap": f" {PH['gap']} ", "nonverbal": f" {PH['nv']} ",
         "pause": " ", "editorial": " "}
 
 
 def process_text(text, spec, prof, stats):
-    """Anmerkungen/Zeitmarken/Platzhalter -> Markierungen. Entfernt nur."""
-    for rx, rep in spec.get("text_sub", []):       # nur Loeschungen, z.B. OCR-Praefix "X.:"
+    """Annotations/time marks/placeholders -> markers. Only removes."""
+    for rx, rep in spec.get("text_sub", []):       # deletions only, e.g. OCR prefix "X.:"
         text, n = re.subn(rx, rep, text)
         stats["text_sub"] += n
     ts = []
@@ -126,20 +126,20 @@ def process_text(text, spec, prof, stats):
         stats["zeitmarken" if t is not None else "zeitmarken_unlesbar"] += 1
         return " \x01 "
     text = TS_ANY.sub(ts_sub, text)
-    text = re.sub(r"\[ocr:(?:[^\[\]]|\[[^\[\]]*\])*\]", f" {PH['unv']} ", text)   # unsichere OCR-Lesung
-    text = re.sub(r"\[#\d{1,3}\]", " ", text)                       # Zaehlerstaende (OCR)
-    # "(19)39er": ergaenztes Jahrhundert wie "[19]41" - redaktionell, gesprochen wird "39er"
+    text = re.sub(r"\[ocr:(?:[^\[\]]|\[[^\[\]]*\])*\]", f" {PH['unv']} ", text)   # uncertain OCR reading
+    text = re.sub(r"\[#\d{1,3}\]", " ", text)                       # counter readings (OCR)
+    # "(19)39er": added century like "[19]41" - editorial, what is spoken is "39er"
     text, n = re.subn(r"\(\s*\d{1,2}\s*\)(?=\d)", "", text)
     stats["notiz:editorial"] += n
-    text = re.sub(r"\bX{3,}\w*|\bxxx\w*", f" {PH['unv']} ", text)          # Platzhalter
-    # "Schwoich(?)" / "Dirndl [?]": das Wort davor ist unsicher
+    text = re.sub(r"\bX{3,}\w*|\bxxx\w*", f" {PH['unv']} ", text)          # placeholders
+    # "Schwoich(?)" / "Dirndl [?]": the word before it is uncertain
     text, n = UNSURE_PREV.subn(f" {PH['unv']} ", text)
     stats["unsicher_markiert"] += n
     overrides = spec.get("notes", {})
     bdef = prof.get("bracket_default", "gap")
     def note_sub(m):
         s = m.group(0)
-        if s in ("[unv]", "[gap]", "[nv]"):               # Markierungen aus der Quelle (OCR)
+        if s in ("[unv]", "[gap]", "[nv]"):               # markers from the source (OCR)
             return f" {PH[s[1:-1]]} "
         inner, kind = s[1:-1], s[0]
         cls = classify(inner, overrides, bdef, kind)
@@ -148,11 +148,11 @@ def process_text(text, spec, prof, stats):
         if cls == "spoken":
             return " " + inner.strip() + " "
         return MARK[cls]
-    for _ in range(2):                          # verschachtelte Klammern
+    for _ in range(2):                          # nested brackets
         text = NOTE.sub(note_sub, text)
-    text = MIXED.sub(note_sub, text)            # "[Reiner oder Raner)"
-    # Nicht geschlossene Anmerkung (ueber eine Turn- oder Textgrenze
-    # umbrochen): was danach bzw. davor steht, ist keine gesicherte Rede.
+    text = MIXED.sub(note_sub, text)            # "[Muster oder Mustar)"
+    # Unclosed annotation (wrapped across a turn or text boundary):
+    # what comes after or before it is not reliably speech.
     if "[" in text or "]" in text:
         stats["_leftover"][text[:100]] += 1
         stats["klammer_offen_als_luecke"] += 1
@@ -167,8 +167,8 @@ def process_text(text, spec, prof, stats):
     text = re.sub("\ue000(unv|gap|nv)\ue001", r"[\1]", text)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"\s+([,.;:!?…“”])", r"\1", text)
-    # Zeitmarken: Position als Wortindex im bereinigten Text festhalten. Der
-    # Platzhalter kann an Satzzeichen kleben ("\x01…"), deshalb im Token suchen.
+    # time marks: record the position as a word index in the cleaned text. The
+    # placeholder can stick to punctuation ("\x01…"), so search within the token.
     out_ts, words = [], []
     for tok in text.split(" "):
         while "\x01" in tok:
@@ -183,7 +183,7 @@ def process_text(text, spec, prof, stats):
         raise AssertionError(f"Steuer-/Platzhalterzeichen im Text: {out[:120]!r}")
     return out, out_ts
 
-# ------------------------------------------------------------------ Turns
+# ------------------------------------------------------------------ turns
 
 def find_line(lines, prefix, start=0):
     for i in range(start, len(lines)):
@@ -207,9 +207,9 @@ def parse(spec, vocab):
     if gflag:
         gmap = detect_glyphs(lines, vocab)
         lines, fixes, unverified = repair_glyphs(lines, vocab, gmap)
-        # Ligaturen, die als Kleinbuchstabe herauskommen (h/i/l/s/t/x fuer fh, tf,
-        # fb ...), sind automatisch nicht von echten Buchstaben zu unterscheiden -
-        # die wenigen Faelle stehen gepruefte in der Spec ("Brohabrik": "Brotfabrik")
+        # Ligatures that come out as a lower-case letter (h/i/l/s/t/x for fh, tf,
+        # fb ...) cannot be told apart from real letters automatically -
+        # the few cases are listed, checked, in the spec ("Brohabrik": "Brotfabrik")
         for bad, good in spec.get("glyph_words", {}).items():
             rx = re.compile(r"(?<![\wÄÖÜäöüß])" + re.escape(bad) + r"(?![\wÄÖÜäöüß])")
             n = sum(len(rx.findall(l)) for l in lines)
@@ -218,7 +218,7 @@ def parse(spec, vocab):
                 fixes[bad] = good
         glyph = {"map": gmap, "fixes": fixes, "unverified": sorted(unverified)}
     tags = Tags(spec, style)
-    # --- Gespraechsbeginn und -ende
+    # --- start and end of the conversation
     if spec.get("body_start"):
         b0 = find_line(lines, spec["body_start"])
         if b0 is None:
@@ -233,7 +233,7 @@ def parse(spec, vocab):
         if e is None:
             raise ValueError(f"{spec['id']}: body_end nicht gefunden: {spec['body_end']!r}")
         b1 = e
-    if prof.get("body_end"):            # Formatwissen (z. B. Abspann der BIK-PDFs): das frühere Ende gilt
+    if prof.get("body_end"):            # format knowledge (e.g. closing credits of the BIK PDFs): the earlier end applies
         rx = re.compile(prof["body_end"])
         e = next((i for i in range(b0 + 1, b1) if rx.match(lines[i].strip())), None)
         if e is not None:
@@ -245,7 +245,7 @@ def parse(spec, vocab):
         s = lines[i].replace("\x0c", "").strip()
         if not s:
             continue
-        if any(rx.search(s) for rx in gaps):          # z.B. "Teil 2": Luecke, kein Text
+        if any(rx.search(s) for rx in gaps):          # e.g. "Teil 2": gap, no text
             stats["zeile_als_luecke"] += 1
             body_raw.append((i, "[gap]"))
             continue
@@ -254,7 +254,7 @@ def parse(spec, vocab):
             stats["_notes"][f"(verworfene Zeile) {s[:60]}"] += 1
             continue
         body_raw.append((i, s))
-    # --- in Turns zerlegen
+    # --- split into turns
     turns, cur = [], None
     untagged = []
     para = prof.get("join", "paragraph") == "paragraph"
@@ -276,7 +276,7 @@ def parse(spec, vocab):
             stats["vor_erstem_kuerzel"] += 1
     if cur:
         turns.append(cur)
-    # --- eingebettete Kuerzel mitten in der Zeile und "[I: Okay.]" abtrennen
+    # --- split off embedded tags in the middle of a line and "[I: Okay.]"
     split = []
     for t in turns:
         pieces = [(t["tag"], t["raw"])]
@@ -306,14 +306,14 @@ def parse(spec, vocab):
         for tag, raw in pieces:
             if raw.strip():
                 split.append({"tag": tag, "raw": raw.strip(), "line": t["line"]})
-    # --- Text bereinigen, Sprecher zuordnen
+    # --- clean the text, assign speakers
     speakers = spec.get("speakers", {})
     out = []
     for t in split:
         txt, ts = process_text(t["raw"], spec, prof, stats)
         if not re.sub(r"\[(unv|gap|nv)\]", "", txt).strip():
             if txt.strip():
-                out.append(None)             # reine Markierung: an den Vorgaenger haengen
+                out.append(None)             # marker only: attach to the previous one
                 out[-1] = {"marker_only": txt}
             continue
         sp = speakers.get(t["tag"], {"name": t["tag"], "role": "unbekannt",
@@ -322,7 +322,7 @@ def parse(spec, vocab):
             stats["_unknown_speaker:" + t["tag"]] += 1
         out.append({"speaker": t["tag"], "name": sp["name"], "role": sp["role"],
                     "person": sp["person"], "text": txt, "timestamps": ts, "line": t["line"]})
-    # reine Markierungs-Turns ("[gap]" als eigene Zeile) dem vorigen Turn anhaengen
+    # attach marker-only turns ("[gap]" as a line of its own) to the previous turn
     turns2 = []
     for t in out:
         if t is None:
@@ -335,7 +335,7 @@ def parse(spec, vocab):
     for k, t in enumerate(turns2):
         t["idx"] = k
         t["n_words"] = len(re.sub(r"\[(unv|gap|nv)\]", " ", t["text"]).split())
-    # --- Wortgetreu? Ausgabewoerter muessen Teilfolge des Quelltexts sein
+    # --- verbatim? Output words must be a subsequence of the source text
     src_words = re.findall(r"[\wÄÖÜäöüß]+", " ".join(s for _, s in body_raw).lower())
     out_words = re.findall(r"[\wÄÖÜäöüß]+", " ".join(
         re.sub(r"\[(unv|gap|nv)\]", " ", t["text"]) for t in turns2).lower())
@@ -364,8 +364,8 @@ def main():
     ap.add_argument("--report", action="store_true", help="Pruefliste je Interview ausgeben")
     a = ap.parse_args()
     specs = [s for s in load_specs() if not a.only or any(o in s["id"] for o in a.only.split(","))]
-    # Wortschatz fuer die Ligaturreparatur: nur die sauberen docx-Transkripte,
-    # jedes Mal gleich (v1 las ihn aus dem letzten Lauf von Stufe 1)
+    # vocabulary for the ligature repair: only the clean docx transcripts,
+    # the same every time (v1 read it from the last run of stage 1)
     vocab = build_vocab(l for s in load_specs() if (s["transcript"] or "").endswith(".docx")
                         for l in read_lines(resolve(s["transcript"])))
     ok, bad = 0, []

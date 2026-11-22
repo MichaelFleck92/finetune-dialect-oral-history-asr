@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Prüfseite für die spaCy-Entitäten (lokal, ohne Audio). Am besten über den lokalen
-Server öffnen (python3 -m http.server 8765, dann
-http://localhost:8765/training/entities/pruefen_test.html), damit der Browser die
-Entscheidungen sicher speichert; als Datei geöffnet klappt das nicht in jedem Browser.
+Review page for the spaCy entities (local, without audio). Best opened through
+the local server (python3 -m http.server 8765, then
+http://localhost:8765/training/entities/pruefen_test.html), so that the browser
+stores the decisions safely; opened as a file, this does not work in every browser.
 
   python3 training/entities_review.py --split test
   -> training/entities/pruefen_<split>.html
 
-Je verschiedener Schreibung eine Zeile mit Vorschlag, Zahl der Nennungen und
-bis zu drei Stellen im Transkript. Entscheidung je Zeile: stimmt / anderer Typ /
-kein Name / Grenze falsch; Tastatur: Enter stimmt, 1-5 Typ, 0 kein Name,
-9 Grenze falsch, Pfeile oder j/k blättern, u zurücksetzen. Die Entscheidungen
-bleiben im Browser gespeichert; "CSV speichern" lädt
-entitaeten_<split>_geprueft.csv herunter - diese Datei liest entity_eval.py.
-Nur Standardbibliothek; gibt nur Zahlen aus.
+One row per distinct spelling, with suggestion, number of mentions and
+up to three places in the transcript. Decision per row: correct / other type /
+not a name / wrong boundary; keyboard: Enter correct, 1-5 type, 0 not a name,
+9 wrong boundary, arrows or j/k to page, u to reset. The decisions
+stay stored in the browser; "CSV speichern" downloads
+entitaeten_<split>_geprueft.csv - this file is read by entity_eval.py.
+Standard library only; prints only figures.
 """
 import argparse, json
 from collections import Counter, defaultdict

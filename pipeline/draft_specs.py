@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Stufe 0: Entwurfs-Specs fuer alle Interviews unter Interviews/ anlegen.
+Stage 0: create draft specs for all interviews under Interviews/.
 
-Legt nur Specs an, die es noch nicht gibt - ergaenzte Specs werden nie
-ueberschrieben. Der Entwurf enthaelt Transkript und Audioteile in Abspielreihenfolge;
-Sprecher, Rollen, Gespraechsgrenzen und Nicht-Gespraechszeilen legt pipeline/llm_specs.py fest.
+Only creates specs that do not exist yet - completed specs are never
+overwritten. The draft contains the transcript and the audio parts in playback order;
+speakers, roles, conversation boundaries and non-conversation lines are set by pipeline/llm_specs.py.
 
-  python3 pipeline/draft_specs.py            # fehlende Specs anlegen
-  python3 pipeline/draft_specs.py --check    # nur zeigen, was fehlt
+  python3 pipeline/draft_specs.py            # create missing specs
+  python3 pipeline/draft_specs.py --check    # only show what is missing
 """
 import argparse, json, re, sys
 from pathlib import Path
@@ -18,9 +18,9 @@ from common import ROOT, SRC, SPECS, nfc, slug, rel, write_json, audio_duration
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".mp4", ".aac", ".flac", ".mts"}
 TEXT_EXT = {".docx", ".pdf", ".rtf", ".txt"}
 
-# Wo Transkript und Ton nicht im selben Ordner liegen oder die Dateinamen nicht zueinander passen, steht die
-# Zuordnung in config/sources.json (lokal, nicht im Repo, weil die Dateinamen Namen enthalten); Vorlage:
-# config/sources.example.json. Mehrteilige Aufnahmen in Abspielreihenfolge.
+# Where transcript and audio are not in the same folder or the file names do not match, the
+# mapping is in config/sources.json (local, not in the repo, because the file names contain names); template:
+# config/sources.example.json. Multi-part recordings in playback order.
 _SRC = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8")) \
     if (ROOT / "config" / "sources.json").exists() else {}
 RE_TON = _SRC.get("re_ton", "")
@@ -30,8 +30,8 @@ ZWANGSARBEITER = {k: tuple(v) for k, v in _SRC.get("zwangsarbeiter", {}).items()
 
 
 def part_key(p):
-    """Abspielreihenfolge mehrteiliger Aufnahmen: 'Name 27072023' vor
-    'Name 2 27072023', 'Name 1' vor 'Name 2'."""
+    """Playback order of multi-part recordings: 'Name 27072023' before
+    'Name 2 27072023', 'Name 1' before 'Name 2'."""
     stem = nfc(p.stem)
     m = re.search(r"(?:teil|part|[_\s])(\d)(?:\b|_)", stem, re.I)
     return (int(m.group(1)) if m else 1, stem)

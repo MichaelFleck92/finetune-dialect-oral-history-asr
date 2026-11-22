@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Gemeinsames für Parakeet (NeMo) in training/: Auswertung (parakeet_eval.py) und LoRA-Feintuning
+Shared code for Parakeet (NeMo) in training/: evaluation (parakeet_eval.py) and LoRA fine-tuning
 (parakeet_lora.py), 16.11.2026.
 
-Läuft in der eigenen NeMo-Umgebung (z. B. ~/venv-nemo: nemo_toolkit[asr] 3.0, torch 2.15, numba-cuda
-für den TDT-Verlust). Daten, Normalisierung und LoRA-Klasse kommen aus whisper_common.py, damit beide Modelle
-mit denselben Segmenten, derselben Referenz und derselben LoRA-Umsetzung arbeiten.
+Runs in its own NeMo environment (e.g. ~/venv-nemo: nemo_toolkit[asr] 3.0, torch 2.15, numba-cuda
+for the TDT loss). Data, normalisation and the LoRA class come from whisper_common.py, so that both models
+work with the same segments, the same reference and the same LoRA implementation.
 
-LoRA-Ziele (Gegenstück zu Whisper q/k/v/out_proj, fc1, fc2): im FastConformer-Encoder die Attention-Projektionen
-linear_q, linear_k, linear_v, linear_out und die beiden Feed-Forward-Blöcke je Schicht (linear1, linear2); im
-Joint-Netz die Projektionen von Encoder und Prediction-Netz (enc, pred). Nicht: linear_pos (relative Positionen,
-bei Whisper kein Gegenstück), die Ausgabeschicht des Joint-Netzes (bei Whisper bleibt die Ausgabeschicht ebenfalls
-fest) und das LSTM des Prediction-Netzes (keine Linear-Schicht).
+LoRA targets (counterpart to Whisper's q/k/v/out_proj, fc1, fc2): in the FastConformer encoder the attention projections
+linear_q, linear_k, linear_v, linear_out and the two feed-forward blocks per layer (linear1, linear2); in the
+joint network the projections of the encoder and the prediction network (enc, pred). Not: linear_pos (relative positions,
+no counterpart in Whisper), the output layer of the joint network (Whisper's output layer also stays
+frozen) and the LSTM of the prediction network (not a linear layer).
 """
 import json, sys
 from pathlib import Path
@@ -20,10 +20,10 @@ import torch
 from torch import nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import transformers     # noqa: E402,F401  vor dem Platzhalter laden (prüft beim Import, ob torchaudio da ist)
+import transformers     # noqa: E402,F401  load before the placeholder (checks on import whether torchaudio is present)
 _STUB = False
-try:                    # torchaudio gibt es für die torch-Version von NeMo 3 nicht mehr; pipeline/align.py
-    import torchaudio   # noqa: F401  importiert es, gebraucht wird hier nur norm_word (Normalisierung)
+try:                    # torchaudio no longer exists for NeMo 3's torch version; pipeline/align.py
+    import torchaudio   # noqa: F401  imports it, only norm_word (normalisation) is needed here
 except ImportError:
     import types
     _ta = types.ModuleType("torchaudio")
@@ -32,7 +32,7 @@ except ImportError:
     _STUB = True
 from whisper_common import (ROOT, RUNS, SR, split_rows, load_audio, words,          # noqa: E402,F401
                             LoRALinear, lora_state, merge_lora)
-if _STUB:               # Platzhalter wieder entfernen, damit NeMo torchaudio als nicht vorhanden sieht
+if _STUB:               # remove the placeholder again so that NeMo sees torchaudio as not installed
     sys.modules.pop("torchaudio.functional", None)
     sys.modules.pop("torchaudio", None)
 
@@ -41,8 +41,8 @@ TARGETS = "linear_q,linear_k,linear_v,linear_out,linear1,linear2,enc,pred"
 
 
 def add_lora(model, targets, r, alpha, dropout, scope="all"):
-    """Alle Gewichte einfrieren und die genannten Linear-Schichten durch LoRALinear ersetzen – in Encoder und
-    Joint-Netz (scope "all") oder nur in einem von beiden ("encoder", "joint"). -> Zahl der ersetzten Schichten."""
+    """Freeze all weights and replace the named linear layers with LoRALinear – in the encoder and
+    joint network (scope "all") or only in one of them ("encoder", "joint"). -> number of replaced layers."""
     for p in model.parameters():
         p.requires_grad_(False)
     roots = {"all": [model.encoder, model.joint], "encoder": [model.encoder], "joint": [model.joint]}[scope]
@@ -57,10 +57,10 @@ def add_lora(model, targets, r, alpha, dropout, scope="all"):
 
 
 def load_model(name=MODEL, adapter=None, device=None):
-    """Parakeet aus NeMo, optional mit trainiertem LoRA-Adapter (in die Basisgewichte eingerechnet)."""
+    """Parakeet from NeMo, optionally with a trained LoRA adapter (merged into the base weights)."""
     import nemo.collections.asr as nemo_asr
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    model = nemo_asr.models.ASRModel.from_pretrained(name)     # NeMo legt das Modell selbst schon auf die GPU
+    model = nemo_asr.models.ASRModel.from_pretrained(name)     # NeMo already puts the model on the GPU itself
     if adapter:
         cfg = json.loads((Path(adapter) / "lora.json").read_text(encoding="utf-8"))
         assert cfg["base"] == name, f"Adapter gehört zu {cfg['base']}, nicht zu {name}"
@@ -69,13 +69,13 @@ def load_model(name=MODEL, adapter=None, device=None):
         expected = {k for k in model.state_dict() if ".lora_" in k}
         assert expected == set(state), "Adapter passt nicht zum Modell"
         model.load_state_dict(state, strict=False)
-        model.to(device)                                       # neue LoRA-Schichten auf dasselbe Gerät
+        model.to(device)                                       # new LoRA layers on the same device
         merge_lora(model)
     return model.to(device).eval()
 
 
 def texte(out):
-    """NeMo gibt je nach Version str, Hypothesis oder (beste, alle) zurück."""
+    """Depending on the version, NeMo returns str, Hypothesis or (best, all)."""
     if isinstance(out, tuple):
         out = out[0]
     return [(o.text if hasattr(o, "text") else str(o)).strip() for o in out]

@@ -1,40 +1,40 @@
 #!/usr/bin/env python3
 """
-LoRA-Feintuning von Whisper auf dem train-Teil des Datensatzes.
+LoRA fine-tuning of Whisper on the train part of the dataset.
 
   python3 training/whisper_lora.py --model openai/whisper-tiny --name tiny-lora --epochs 1
 
-Das Ausgangsmodell bleibt eingefroren; gelernt werden nur die LoRA-Matrizen in
-den Attention- und MLP-Schichten von Encoder und Decoder (whisper_common.add_lora).
-Ziel ist `text` mit dem Vorspann <|de|><|transcribe|><|notimestamps|>. Zur
-Kontrolle der Verlust auf einer festen dev-Auswahl vor dem Training und nach
-jeder Epoche. -> training/runs/<name>/ (lora.pt, lora.json, log.csv)
+The base model stays frozen; only the LoRA matrices in the attention and MLP
+layers of the encoder and decoder are learned (whisper_common.add_lora).
+The target is `text` with the prefix <|de|><|transcribe|><|notimestamps|>. As a
+check, the loss on a fixed dev selection before training and after every
+epoch. -> training/runs/<name>/ (lora.pt, lora.json, log.csv)
 
-Danach: python3 training/whisper_eval.py --model <dasselbe> --adapter training/runs/<name> --name <name> --split dev
-Bei mehreren Epochen liegt jeder Zwischenstand in training/runs/<name>/ep<k>/ (auswertbar wie ein Lauf).
-Abgestimmt wird nur auf dev; test bleibt fuer den Schluss.
+Then: python3 training/whisper_eval.py --model <the same> --adapter training/runs/<name> --name <name> --split dev
+With several epochs, every checkpoint lies in training/runs/<name>/ep<k>/ (can be evaluated like a run).
+Tuning is done on dev only; test is kept for the end.
 
-Speicher (Apple-GPU): Der Encoder vergleicht 1500 Frames paarweise; das kostet
-je Segment im Batch rund 1 GB (gemessen 02.10.2026: Batch 2 / 4 / 8 = 2,4 / 4,7
-/ 8,0 GB, Durchsatz gleich). Batch 16 auf einmal brachte 24 GB zum Auslagern.
-Deshalb Batch 4 mal 4 Gradientenschritte (wirkt wie Batch 16), und die
-MPS-Speichergrenze ist gesenkt: lieber ein Fehler als ein auslagernder Rechner.
+Memory (Apple GPU): the encoder compares 1500 frames pairwise; that costs
+about 1 GB per segment in the batch (measured 02.10.2026: batch 2 / 4 / 8 = 2.4 / 4.7
+/ 8.0 GB, same throughput). Batch 16 at once pushed 24 GB into swap.
+Hence batch 4 times 4 gradient steps (acts like batch 16), and the
+MPS memory limit is lowered: better an error than a swapping machine.
 
-Nvidia-GPU (cuda): Ausgangsmodell in bf16, LoRA-Gewichte in fp32, gerechnet
-unter autocast (bf16). --grad-ckpt speichert je Schicht nur die Eingaben und
-rechnet den Rest beim Rueckwaertsschritt neu (langsamer, viel weniger Speicher).
-Gemessen 02.10.2026, whisper-large-v3 auf einer Nvidia-GPU mit 24 GB, je Schritt 16 Segmente:
-Batch 2 x 8: 5,3 s, 11,8 GB; Batch 16 mit --grad-ckpt: 5,5 s, 8,1 GB;
-Batch 4 x 4: 4,1 s, 20,0 GB (laengste Transkripte: 20,1 GB) -> 4 x 4.
+Nvidia GPU (cuda): base model in bf16, LoRA weights in fp32, computed
+under autocast (bf16). --grad-ckpt stores only the inputs per layer and
+recomputes the rest in the backward pass (slower, much less memory).
+Measured 02.10.2026, whisper-large-v3 on an Nvidia GPU with 24 GB, 16 segments per step:
+batch 2 x 8: 5.3 s, 11.8 GB; batch 16 with --grad-ckpt: 5.5 s, 8.1 GB;
+batch 4 x 4: 4.1 s, 20.0 GB (longest transcripts: 20.1 GB) -> 4 x 4.
 """
 import argparse, contextlib, csv, functools, json, os, sys, time
 from pathlib import Path
 
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.5")   # Anteil des empfohlenen GPU-Speichers
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.5")   # share of the recommended GPU memory
 os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.4")
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")   # weniger Verschnitt auf cuda
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")   # less waste on cuda
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -46,7 +46,7 @@ TARGETS = "q_proj,k_proj,v_proj,out_proj,fc1,fc2"
 
 
 class Segments(Dataset):
-    """Segment -> (Log-Mel-Merkmale 80 x 3000, Token-Ids des Zieltexts)."""
+    """Segment -> (log-mel features 80 x 3000, token IDs of the target text)."""
 
     def __init__(self, rows, proc):
         self.rows, self.fe, self.tok = rows, proc.feature_extractor, proc.tokenizer
@@ -66,18 +66,18 @@ def collate(batch, sot):
     for k, (_, ids) in enumerate(batch):
         labels[k, :len(ids)] = torch.tensor(ids)
     if bool((labels[:, 0] == sot).all()):
-        labels = labels[:, 1:]                   # <|startoftranscript|> setzt das Modell selbst davor
+        labels = labels[:, 1:]                   # the model itself puts <|startoftranscript|> in front
     return feats, labels
 
 
 def autocast(device):
-    """bf16-Rechnung auf cuda, sonst nichts (MPS/CPU rechnen in fp32)."""
+    """bf16 computation on cuda, nothing otherwise (MPS/CPU compute in fp32)."""
     return torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else contextlib.nullcontext()
 
 
 @torch.no_grad()
 def dev_loss(model, loader, device):
-    """Mittlerer Verlust je Zieltoken auf der dev-Auswahl."""
+    """Mean loss per target token on the dev selection."""
     model.eval()
     tot = n = 0
     for feats, labels in loader:
@@ -122,8 +122,8 @@ def main():
     proc.tokenizer.set_prefix_tokens(language="german", task="transcribe", predict_timestamps=False)
     model = WhisperForConditionalGeneration.from_pretrained(a.model)
     if a.device == "cuda":
-        model.to(torch.bfloat16)                 # eingefrorene Basis; LoRA entsteht danach in fp32
-    if a.spec_augment:                           # Masken laut Modellkonfiguration, nur im Training aktiv
+        model.to(torch.bfloat16)                 # frozen base; LoRA is created in fp32 afterwards
+    if a.spec_augment:                           # masks according to the model configuration, active only in training
         model.config.apply_spec_augment = True
     targets = a.targets.split(",")
     n_layers = add_lora(model, targets, a.rank, a.alpha, a.dropout, a.scope)
@@ -145,7 +145,7 @@ def main():
     tl = DataLoader(Segments(train_rows, proc), batch_size=a.batch, shuffle=True, collate_fn=col,
                     generator=torch.Generator().manual_seed(a.seed), **extra)
     dl = DataLoader(Segments(dev_rows, proc), batch_size=a.batch, collate_fn=col, **extra) if use_dev else None
-    total = a.epochs * -(-len(tl) // a.accum)        # Optimierungsschritte
+    total = a.epochs * -(-len(tl) // a.accum)        # optimisation steps
     warm = max(1, min(100, total // 10))
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(
@@ -197,7 +197,7 @@ def main():
             d = dev_loss(model, dl, a.device)
             log.append({"schritt": step, "epoche": ep + 1, "dev_verlust": round(d, 4), "sekunden": round(time.time() - t0, 1)})
             print(f"Epoche {ep+1}: dev-Verlust {d:.3f} (vorher {d0:.3f})", flush=True)
-        if a.epochs > 1:                         # Zwischenstand je Epoche, auswertbar wie ein eigener Lauf
+        if a.epochs > 1:                         # checkpoint per epoch, can be evaluated like a run of its own
             save(out / f"ep{ep+1}", epoch=ep + 1, dev_loss_after=None if d is None else round(d, 4))
     save(out, epoch=a.epochs, dev_loss_after=None if d is None else round(d, 4))
     with open(out / "log.csv", "w", newline="", encoding="utf-8") as fh:

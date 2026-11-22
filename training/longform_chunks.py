@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Ganze Interviews in Stücke von höchstens 28 s schneiden - an Pausen, nach der
-Lautstärke (ohne Transkript, ohne Modell; für alle Modelle dieselben Stücke).
+Cut complete interviews into chunks of at most 28 s - at pauses, by loudness
+(without transcript, without model; the same chunks for all models).
 
   python3 training/longform_chunks.py --split test
 
-Lautstärke je 20 ms; leise ist, was unter Rauschboden + 35 % des Abstands zum
-90. Perzentil liegt. Pausen = mindestens 0,3 s leise. Geschnitten wird an der ersten
-langen Pause (>= 2 s) im Fenster, sonst an der letzten Pause bis 28 s, sonst hart an
-der leisesten Stelle zwischen 20 und 28 s. Stille zwischen den Stücken fällt weg;
-Stücke mit weniger als 15 % lauten Rahmen werden nicht transkribiert.
--> training/longform/chunks/<interview>.json. Ausgegeben werden nur Zahlen; zur
-Kontrolle der Anteil der Transkriptwörter (Alignment), die in einem Stück liegen.
+Loudness per 20 ms; quiet is what lies below the noise floor + 35 % of the
+distance to the 90th percentile. Pauses = at least 0.3 s quiet. The cut is made
+at the first long pause (>= 2 s) in the window, else at the last pause up to 28 s,
+else hard at the quietest point between 20 and 28 s. Silence between the chunks
+is dropped; chunks with less than 15 % loud frames are not transcribed.
+-> training/longform/chunks/<interview>.json. Only figures are printed; as a
+check, the share of transcript words (alignment) that lie in a chunk.
 """
 import argparse, json, wave
 from pathlib import Path
@@ -36,7 +36,7 @@ def chunks_for(audio):
     db = 20 * np.log10(rms)
     floor, p90 = np.percentile(db, 10), np.percentile(db, 90)
     quiet = db < floor + 0.35 * (p90 - floor)
-    pauses, i = [], 0                      # (start_s, end_s) leiser Läufe
+    pauses, i = [], 0                      # (start_s, end_s) of quiet runs
     while i < n:
         if quiet[i]:
             j = i

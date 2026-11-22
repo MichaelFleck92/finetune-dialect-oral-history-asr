@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Schnittkanten-Regeln abwaegen (nach der Hoerprobe vom 28.09.2026).
+Weigh segment-edge rules (after the listening check of 28.09.2026).
 
-Die Hoerprobe an Stand v2 fand die meisten Fehler an den Segmentraendern.
-Strengere Kantenregeln kosten aber Material - und wenn sie an absoluten
-CTC-Werten haengen, vor allem Dialekt (dieselbe Schieflage wie der v1-Filter).
-Dieses Skript rechnet Varianten durch und vergleicht mit Stand v2
+The listening check of version v2 found most errors at the segment edges.
+Stricter edge rules, however, cost material - and if they depend on absolute
+CTC scores, mostly dialect (the same bias as the v1 filter).
+This script computes variants and compares them with version v2
 (archive/v2_2026-09-27):
 
-  Verlust    behaltene Stunden gegenueber v2 (ohne ausgeschlossene Interviews)
-  Dialekt    Verlust bei Interviews mit niedrigem Median-CTC-Wert (< -1,5:
-             Dialekt, schwierige Aufnahme) gegenueber Hochsprache (> -0,3)
-  Hoerprobe  was mit den 80 bewerteten v2-Segmenten geschaehe
+  Verlust    hours kept compared with v2 (without excluded interviews)
+  Dialekt    loss for interviews with a low median CTC score (< -1.5:
+             dialect, difficult recording) compared with standard German (> -0.3)
+  Hoerprobe  what would happen to the 80 rated v2 segments
 
-Die Begrenzung des Randpolsters auf die Dekodierung (seit v2.2) ist hier
-abgeschaltet: Sie aendert nur Schnittzeiten, keine Woerter, und wuerde sonst
-jede Variante gleich verschieben.
+Limiting the edge padding to the decoding (since v2.2) is switched off here:
+it only changes cut times, no words, and would otherwise shift every variant
+equally.
 
   python3 pipeline/eval_edges.py   -> work/eval/kantenregeln.csv
 """
@@ -32,8 +32,8 @@ ARCH = ROOT / "archive/v2_2026-09-27"
 
 
 def variant(q, cap, absolute, pause):
-    """Kantenpruefung als Funktion. pause: 'keine' | 'sprecherwechsel' (ein Wort)
-    | 'bis_pause' (bei jedem Rand ohne Pause kuerzen, bis eine Pause kommt)."""
+    """Edge check as a function. pause: 'keine' | 'sprecherwechsel' (one word)
+    | 'bis_pause' (trim at every edge without a pause until a pause comes)."""
     def trim(seg, aligned, pos, thr, emis, inv, stats):
         for side in (-1, +1):
             cascade = False
@@ -85,7 +85,7 @@ def main():
     ids = [i for i in specs if not specs[i].get("exclude") and old_h.get(i)]
     orig_trim, orig_q, orig_cap = SG.trim_edges, SG.EDGE_Q, SG.EDGE_SC_MAX
     orig_after = SG.speech_after
-    SG.speech_after = lambda *a: None                       # Polstergrenze aus (siehe oben)
+    SG.speech_after = lambda *a: None                       # padding limit off (see above)
     rows = []
     for name, v in VARIANTS:
         SG.trim_edges = variant(**v)

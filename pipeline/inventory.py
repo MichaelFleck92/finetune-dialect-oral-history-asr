@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Strukturuebersicht je Transkript - die Grundlage, aus der die Spec geschrieben
-wird (von pipeline/llm_specs.py oder von Hand).
+Structural overview per transcript - the basis from which the spec is
+written (by pipeline/llm_specs.py or by hand).
 
-Zeigt nur, was fuer die Struktur noetig ist: Kopf (Kontaktdaten maskiert),
-Kandidaten fuer Sprecherkuerzel mit Haeufigkeit, Kuerzel mitten in Zeilen,
-alle Klammer-Anmerkungen, Zeitmarken, Platzhalter und die letzten Zeilen.
-Der Gespraechstext selbst wird nicht ausgegeben.
+Shows only what the structure needs: header (contact data masked),
+candidates for speaker tags with frequencies, tags in the middle of lines,
+all bracketed annotations, time marks, placeholders and the last lines.
+The conversation text itself is not printed.
 
-  python3 pipeline/inventory.py rs_muster_a [re_beispiel ...]   # einzelne
+  python3 pipeline/inventory.py rs_muster_a [re_beispiel ...]   # individual ones
   python3 pipeline/inventory.py --all > work/inventory.txt
 """
 import argparse, collections, re, sys
@@ -55,7 +55,7 @@ def inventory(spec, max_notes=80):
         m = TAG_LINE.match(l)
         if m and len(m.group(1).split()) <= 4:
             tags[m.group(1)] += 1; tag_ex.setdefault(m.group(1), (i, l[m.end():m.end() + 50]))
-    # erste Zeile, die mit einem haeufigen Kuerzel beginnt = vermutlich Gespraechsbeginn
+    # first line starting with a frequent tag = probably the start of the conversation
     frequent = {k for k, n in tags.items() if n >= 5} | {k for k, n in btags.items() if n >= 5}
     first_turn = next((i for i, l in nonempty
                        if (TAG_LINE.match(l) and TAG_LINE.match(l).group(1) in frequent)

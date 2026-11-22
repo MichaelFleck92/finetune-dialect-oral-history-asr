@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Alle Auswertungen in training/runs/ als Tabelle (eine Zeile je eval_*.json).
+All evaluations in training/runs/ as a table (one row per eval_*.json).
 
   python3 training/summarize_runs.py --split dev
   python3 training/summarize_runs.py --split dev --csv training/runs/uebersicht_dev.csv
 
-Spalten: Lauf (Ordner, Epochen-Zwischenstaende als <lauf>/ep<k>), Dekodierung,
-WER/CER gesamt und je Projekt, dazu die Trainingseinstellungen aus lora.json
-(leer beim Ausgangsmodell). Sortiert nach WER.
+Columns: run (folder, epoch checkpoints as <lauf>/ep<k>), decoding,
+WER/CER overall and per project, plus the training settings from lora.json
+(empty for the base model). Sorted by WER.
 """
 import argparse, csv, json, sys
 from pathlib import Path

@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-NVIDIA Parakeet (NeMo, z. B. nvidia/parakeet-tdt-0.6b-v3) auf denselben Daten wie Whisper (15.11.2026).
+NVIDIA Parakeet (NeMo, e.g. nvidia/parakeet-tdt-0.6b-v3) on the same data as Whisper (15.11.2026).
 
-  --modus segmente:   Test-Segmente wie whisper_eval.py
+  --modus segmente:   test segments as in whisper_eval.py
                       -> training/runs/<name>/eval_<split>_<tag>.json, predictions_<split>_<tag>.csv
-  --modus interviews: ganze Interviews, dieselben Stücke aus longform_chunks.py wie longform_eval.py
+  --modus interviews: complete interviews, the same chunks from longform_chunks.py as longform_eval.py
                       -> training/runs/<name>/longform_<tag>/<interview>.json ({"chunks": [[s, e, text], ...]})
 
-Dekodierung: NeMo-Standard des Modells (TDT greedy, Sprache automatisch erkannt; Parakeet hat keine
-Sprachvorgabe), ohne Liste und ohne Feintuning. Referenz, Normalisierung und WER wie whisper_eval.py
-(whisper_common.words); Auswertung danach mit entity_eval.py, longform_score.py,
-longform_entities.py wie bei Whisper. Läuft in einer eigenen Umgebung mit nemo_toolkit[asr]
-(requirements-nemo.txt, z. B. ~/venv-nemo). Ausgegeben werden nur Zahlen.
+Decoding: the model's NeMo default (TDT greedy, language detected automatically; Parakeet has no
+language setting), without a list and without fine-tuning. Reference, normalisation and WER as in whisper_eval.py
+(whisper_common.words); scoring afterwards with entity_eval.py, longform_score.py,
+longform_entities.py as for Whisper. Runs in its own environment with nemo_toolkit[asr]
+(requirements-nemo.txt, e.g. ~/venv-nemo). Only figures are printed.
 
   ~/venv-nemo/bin/python training/parakeet_eval.py --modus segmente
   ~/venv-nemo/bin/python training/parakeet_eval.py --modus interviews
 
-Mit LoRA-Adapter aus parakeet_lora.py (16.11.2026; wird in die Basisgewichte eingerechnet):
+With a LoRA adapter from parakeet_lora.py (16.11.2026; merged into the base weights):
   ~/venv-nemo/bin/python training/parakeet_eval.py --modus segmente --split dev \
       --adapter training/runs/<lauf> --name <lauf>
 """

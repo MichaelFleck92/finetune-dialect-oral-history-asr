@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-Entitäten in den Transkripten eines Teils markieren - lokal mit spaCy.
+Mark entities in the transcripts of one part - locally with spaCy.
 
   ~/venvs/roterstern-ner/bin/python training/entities_tag.py --split test
 
-Läuft in einer eigenen Umgebung (spaCy 3.8 + de_core_news_lg), damit die
-Pipeline-Umgebung (torch, numpy) unberührt bleibt; braucht sonst nur die
-Standardbibliothek. Je Interview werden die Segmente in Zeitfolge zu einem Text
-verbunden (eine Zeile je Segment), damit spaCy Zusammenhang hat; Entitäten über
-eine Segmentgrenze hinweg werden verworfen.
+Runs in its own environment (spaCy 3.8 + de_core_news_lg), so that the
+pipeline environment (torch, numpy) stays untouched; otherwise needs only the
+standard library. Per interview, the segments are joined in time order into one
+text (one line per segment) so that spaCy has context; entities across a
+segment boundary are discarded.
 
-Markiert wird:
-  spacy   PER, LOC, ORG, MISC aus dem NER-Modell
-  propn   Eigennamen (Wortart PROPN) außerhalb jeder Entität - mögliche
-          Lücken des Modells, Typ "?" bis zur Prüfung
-  regel   Jahreszahlen 1800-2029 und Datumsangaben, Typ DATUM
+Marked are:
+  spacy   PER, LOC, ORG, MISC from the NER model
+  propn   proper nouns (part of speech PROPN) outside any entity - possible
+          gaps of the model, type "?" until reviewed
+  regel   years 1800-2029 and dates, type DATUM
 
--> training/entities/<split>_spacy.jsonl (je Segment: file_name, interview,
-   Entitäten mit Zeichenpositionen in `text`). Ausgegeben werden nur Zahlen.
+-> training/entities/<split>_spacy.jsonl (per segment: file_name, interview,
+   entities with character positions in `text`). Only figures are printed.
 """
 import argparse, json, re
 from collections import Counter, defaultdict

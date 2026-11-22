@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-Stufe 5: Segmente ausschneiden und als Datensatz schreiben.
+Stage 5: cut out the segments and write them as a dataset.
 
-  dataset/audio/<interview>/<interview>_<start_ms>.flac   16 kHz mono, verlustfrei
-  dataset/metadata.jsonl                                  eine Zeile je Segment
-  dataset/words.jsonl                                     Wortzeiten je Segment
-  dataset/manifest.json                                   Herkunft, Codestand, Zahlen
+  dataset/audio/<interview>/<interview>_<start_ms>.flac   16 kHz mono, lossless
+  dataset/metadata.jsonl                                  one row per segment
+  dataset/words.jsonl                                     word times per segment
+  dataset/manifest.json                                   provenance, code version, figures
 
-Gegenueber v1:
-  * Dateinamen enthalten die Startzeit (ms). Aendert sich die Segmentierung,
-    aendert sich der Name - eine alte Datei kann nie unter einem neuen Text
-    weiterverwendet werden (v1 --reuse-audio verglich nur die laufende Nummer).
-    Wiederverwendet wird nur, was laut Manifest aus derselben Quelle mit
-    denselben Grenzen geschnitten wurde.
-  * Aufteilung jetzt fest (pipeline/specs/_split.json), nach Personengruppen:
-    Interviews, in denen dieselbe Person spricht (zweimal interviewte Personen,
-    Ehepaare, eine Person als "Freund" in einem anderen Interview),
-    liegen immer zusammen. Interviewer:innen sprechen in vielen Interviews -
-    ihre Segmente kommen nur ins Training; die Interviewer-Segmente von
-    Dev/Test-Interviews werden ausgelassen, damit keine Stimme und kein Raum
-    auf beiden Seiten liegt. Neue Interviews landen im Training.
+Compared with v1:
+  * File names contain the start time (ms). If the segmentation changes,
+    the name changes - an old file can never be reused under a new text
+    (v1 --reuse-audio only compared the running number).
+    Only what the manifest says was cut from the same source with the same
+    boundaries is reused.
+  * The split is now fixed (pipeline/specs/_split.json), by groups of persons:
+    interviews in which the same person speaks (persons interviewed twice,
+    married couples, a person appearing as a "friend" in another interview)
+    always stay together. Interviewers speak in many interviews -
+    their segments go into training only; the interviewer segments of
+    dev/test interviews are left out, so that no voice and no room is on
+    both sides. New interviews go into training.
 
   python3 pipeline/export_dataset.py [--dry-run]
 """
@@ -34,10 +34,10 @@ SPLIT_FILE = SPECS / "_split.json"
 TEST_SHARE, DEV_SHARE = 0.10, 0.10
 
 
-# ------------------------------------------------------------ Personengruppen
+# ------------------------------------------------------------ groups of persons
 
 def person_groups(specs):
-    """Union-Find ueber Interviews, die eine Nicht-Interviewer-Person teilen."""
+    """Union-find over interviews that share a non-interviewer person."""
     parent = {s["id"]: s["id"] for s in specs}
     def find(x):
         while parent[x] != x:
@@ -60,8 +60,8 @@ def person_groups(specs):
 
 
 def make_split(specs, hours):
-    """Feste Aufteilung erzeugen (nur wenn _split.json fehlt): je Projekt
-    ~10 % Test / ~10 % Dev nach Stunden, Gruppen in fester Zufallsfolge."""
+    """Create the fixed split (only if _split.json is missing): per project
+    ~10 % test / ~10 % dev by hours, groups in a fixed random order."""
     groups = person_groups(specs)
     proj = {s["id"]: s["project"] for s in specs}
     assign = {}
@@ -72,7 +72,7 @@ def make_split(specs, hours):
         acc = {"test": 0.0, "dev": 0.0}
         for g in gs:
             h = sum(hours.get(i, 0) for i in groups[g])
-            if len(gs) <= 3:                        # Zwangsarbeiter: 1 Test, Rest Training
+            if len(gs) <= 3:                        # forced labourers: 1 test, rest training
                 sp = "test" if acc["test"] == 0 else "train"
             elif acc["test"] + h <= TEST_SHARE * total * 1.3 and acc["test"] < TEST_SHARE * total:
                 sp = "test"
@@ -89,7 +89,7 @@ def make_split(specs, hours):
             "created": time.strftime("%Y-%m-%d"), "interviews": dict(sorted(assign.items()))}
 
 
-# ------------------------------------------------------------ Schneiden
+# ------------------------------------------------------------ cutting
 
 def cut(src, dst, start, dur):
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -100,7 +100,7 @@ def cut(src, dst, start, dur):
 
 
 def source_part(parts, t):
-    """Zeitpunkt im zusammengefuegten 16-kHz-Audio -> (Originaldatei, Zeit darin)."""
+    """Time in the concatenated 16 kHz audio -> (original file, time within it)."""
     cur = parts[0]
     for p in parts:
         if t >= p["offset_s"]:
@@ -128,7 +128,7 @@ def main():
         print(f"Aufteilung neu festgelegt -> {SPLIT_FILE.relative_to(ROOT)}")
     groups = person_groups(specs)
     grp_of = {i: g for g, ids in groups.items() for i in ids}
-    # Konsistenz: eine Gruppe darf nicht ueber mehrere Teile verteilt sein
+    # consistency: a group must not be spread over several parts
     for g, ids in groups.items():
         parts = {split["interviews"].get(i, {"split": "train"})["split"] for i in ids}
         if len(parts) > 1:

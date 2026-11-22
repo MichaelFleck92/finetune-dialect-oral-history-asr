@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Abschlusskontrolle des ausgelieferten Datensatzes. Bricht mit Fehlercode ab,
-wenn etwas nicht stimmt.
+Final check of the delivered dataset. Exits with an error code if anything
+is wrong.
 
-  * Dateibestand: jede Zeile hat ihre Datei, keine Datei ohne Zeile
-  * Inhalt: JEDE FLAC wird dekodiert und bitgenau mit dem Ausschnitt aus
-    work/audio16k verglichen - gleiche Samples, kein Versatz, exakte Laenge
-    (v1 pruefte die Dauer von 25 Stichproben). Gegen die Originalaufnahmen
-    prueft das nicht: die Umwandlung dorthin (Stufe 2) resampelt.
-  * keine Ueberlappung zweier Segmente desselben Interviews
-  * Texte: keine Auszeichnung, keine Kuerzel, keine Fuellwoerter, keine
-    Ersatzzeichen kaputter Ligaturen, keine Platzhalter (XXX, (?)), kein
-    Strich am Ende (abgebrochener Satz)
-  * Aufteilung: keine Person (ausser Interviewer:innen) und keine
-    Personengruppe in mehr als einem Teil; keine Interviewer-Segmente in Dev/Test
+  * Files: every row has its file, no file without a row
+  * Content: EVERY FLAC is decoded and compared bit for bit with the excerpt
+    from work/audio16k - same samples, no offset, exact length
+    (v1 checked the duration of 25 samples). This does not check against the
+    original recordings: the conversion to work/audio16k (stage 2) resamples.
+  * no overlap between two segments of the same interview
+  * Texts: no markup, no abbreviations, no fillers, no replacement
+    characters of broken ligatures, no placeholders (XXX, (?)), no dash at
+    the end (broken-off sentence)
+  * Split: no person (except interviewers) and no group of persons in more
+    than one part; no interviewer segments in dev/test
 
   python3 pipeline/check_dataset.py [--quick]
 """
@@ -40,21 +40,21 @@ BAD_TEXT = [
 
 
 def glyph_residue(word, chars):
-    """Steht noch ein Ersatzzeichen dieses Dokuments mitten im Wort? Bewusst
-    unabhaengig von sources.py geschrieben - die Regex oben uebersah Faelle
-    direkt nach dem grossen Anfangsbuchstaben ("SOfting", "OXizier"; Review
+    """Is a replacement character of this document still inside a word?
+    Deliberately written independently of sources.py - the regex above missed
+    cases right after the capital initial letter ("SOfting", "OXizier"; review
     01.10.2026)."""
-    if not word or word[0].isdigit():          # Zahlen ("100", wenn 0 = tt)
+    if not word or word[0].isdigit():          # digits ("100" if 0 = tt)
         return False
     for i in range(1, len(word)):
         c = word[i]
         if c not in chars:
             continue
         prev, nxt = word[i - 1], word[i + 1] if i + 1 < len(word) else ""
-        g_prev = prev in chars and i > 1       # der Anfangsbuchstabe ist nie Ersatzzeichen ("SS", S = ti)
+        g_prev = prev in chars and i > 1       # the initial letter is never a replacement character ("SS", S = ti)
         if nxt and not (nxt.islower() or nxt in chars):
             continue
-        if c.isalpha():                        # nicht in Abkuerzungen ("PKWs", "OK")
+        if c.isalpha():                        # not in abbreviations ("PKWs", "OK")
             if prev.islower() or g_prev or (i == 1 and prev.isupper() and nxt):
                 return True
         elif prev.isalpha() or g_prev:
@@ -86,7 +86,7 @@ def main():
         fails.append(f"{len(extra)} Dateien ohne Zeile")
     print(f"Dateien: {len(on_disk)}  fehlend {len(miss)}  ueberzaehlig {len(extra)}")
 
-    # Inhalt bitgenau
+    # content, bit for bit
     by_iv = collections.defaultdict(list)
     for r in rows:
         by_iv[r["interview"]].append(r)
@@ -116,7 +116,7 @@ def main():
     print(f"Inhalt geprueft: {len(todo)} Dateien, nicht bitgleich {len(bad_content)}, "
           f"groesste Laengenabweichung {dur_err} Samples")
 
-    # Ueberlappungen
+    # overlaps
     ov = 0
     for iid, rs in by_iv.items():
         rs = sorted(rs, key=lambda r: r["source_start"])
@@ -125,7 +125,7 @@ def main():
         fails.append(f"{ov} ueberlappende Segmentpaare")
     print(f"Ueberlappende Paare: {ov}")
 
-    # Texte
+    # texts
     for name, rx in BAD_TEXT:
         hits = [r for r in rows if rx.search(r["text"])]
         print(f"Text '{name}': {len(hits)}" + (f"  z.B. {hits[0]['text'][:80]!r}" if hits else ""))
@@ -133,7 +133,7 @@ def main():
             fails.append(f"{len(hits)} Texte mit {name}")
         elif len(hits) > 20:
             fails.append(f"{len(hits)} Texte mit moeglichen Ligatur-Ersatzzeichen")
-    # Ersatzzeichen je Dokument (glyphs.map der PDFs mit kaputten Ligaturen)
+    # replacement characters per document (glyphs.map of the PDFs with broken ligatures)
     glyph_chars = {}
     for f in (WORK / "turns").glob("*.json"):
         g = json.loads(f.read_text(encoding="utf-8")).get("glyphs") or {}
@@ -149,7 +149,7 @@ def main():
     if short:
         fails.append(f"{len(short)} Texte mit weniger als 2 Woertern")
 
-    # Aufteilung
+    # split
     parts_of = collections.defaultdict(set)
     grp_parts = collections.defaultdict(set)
     for r in rows:
